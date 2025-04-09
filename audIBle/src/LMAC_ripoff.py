@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from audIBle.data.datasets import ESC_50
+from audIBle.data.datasets import ESC_50,WHAMDataset,combine_batches
 import torch.nn.functional as F
 import torchaudio
 import torchaudio.transforms as tr
@@ -117,6 +117,18 @@ class Classifier(torch.nn.Module):
 def freeze(layer):
     for param in layer.parameters():
         param.requires_grad = False
+class WHAMAugment(nn.Module):
+    def __init__(self,duration=5.):
+        super(WHAMAugment).__init__()
+        self.duration = duration
+        self.dataset = []
+    def forward(self,X):
+        sig_length = X.shape[1]
+        indices = torch.randint(0,len(self.dataset),X.shape[0])
+        for i in indices:
+            noise = self.dataset[i]
+            noise_length = noise.shape[1]
+            necessary_pad = sig_length - noise_length
 class LMAC(nn.Module):
     L_IN_W = 4
     L_OUT_W = 0.2
@@ -125,7 +137,7 @@ class LMAC(nn.Module):
     G_W = 4
     CROSSCOR_TH=0.6
     BIN_TH=0.35
-    def __init__(self,embedding_path,classifier_path,emb_dim,n_class,verbose=True):
+    def __init__(self,embedding_path,classifier_path,emb_dim,n_class,verbose=True,wham_path = ""):
         super(LMAC, self).__init__()
         self.verbose = verbose
         embedding_model = torch.load(embedding_path,map_location=DEVICE)
@@ -142,6 +154,7 @@ class LMAC(nn.Module):
         self.stft_power = SpecMag(power=0.5)
 
         self.mel = tr.MelScale(n_mels=80,sample_rate=44100,n_stft=513,f_min=0,f_max=8000)#magic value
+        self.Wham_loader = DataLoader(WHAMDataset(data_dir=wham_path,target_length=5.,sample_rate=44100))
 
 
     def interpret_computation_steps(self,X):
@@ -180,8 +193,11 @@ class LMAC(nn.Module):
             X_stft_logpower,
         )
     def compute_forward(self,X):
+
+        X = combine_batches(X,self.Wham_loader)
         #print("Compute forward")
         X_stft = self.stft(X)
+
         
         X_mel = torch.log1p(self.mel(X_stft)).transpose(2,3)
          
@@ -203,7 +219,7 @@ class LMAC(nn.Module):
     def compute_objectives(self, pred, label, stage='train'):
         """Helper function to compute the objectives"""
         (
-            X,
+            X,#Noisy data
             predictions,
             xhat,
             _,
