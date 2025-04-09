@@ -39,9 +39,9 @@ class ESC_50(AudioDataset):
         'md5': '54a0d0055a10bb7df84ad340a148722e',
     }
 
-    def __init__(self, root, train: bool = True, reading_transformations: nn.Module = None):
+    def __init__(self, root, part: str = "train", reading_transformations: nn.Module = None):
         super().__init__(root)
-        self.train = train
+        self.part = part
         self._load_meta()
 
         self.data = []
@@ -62,7 +62,13 @@ class ESC_50(AudioDataset):
                                ' You can use download=True to download it')
 
         data = pd.read_csv(path)
-        index = data['fold'] != 5 if self.train else data['fold'] == 5
+        if self.part == 'train':
+            folds = [1,2,3]
+        elif self.part == 'valid':
+            folds = [4]
+        else:
+            folds = [5]
+        index = data['fold'].isin(folds)
         self.df = data[index]
         self.class_to_idx = {}
         self.classes = sorted(self.df[self.label_col].unique())
