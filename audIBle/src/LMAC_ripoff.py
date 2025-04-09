@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from ..data.datasets import ESC_50
+from audIBle.data.datasets import ESC_50
 import torch.nn.functional as F
 import torchaudio
 import torchaudio.transforms as tr
@@ -90,7 +90,7 @@ class Classifier(torch.nn.Module):
 
         # Final Layer
         self.weight = nn.Parameter(
-            torch.FloatTensor(out_neurons, input_size, device=device)
+            torch.Tensor(out_neurons, input_size, device=device)
         )
         nn.init.xavier_uniform_(self.weight)
 
@@ -132,7 +132,7 @@ class LMAC(nn.Module):
         self.encoder = Cnn14(mel_bins=80, emb_dim=emb_dim, return_reps=True)
         self.encoder.load_state_dict(embedding_model)
         freeze(self.encoder)
-        self.classifier = Classifier(input_size=emb_dim,lin_blocks=1,out_neurons=n_class,lin_neurons=192,device=DEVICE)
+        self.classifier = Classifier(input_size=emb_dim,lin_blocks=1,out_neurons=n_class,lin_neurons=192)
         classifier_model = torch.load(classifier_path,map_location=DEVICE)
         self.classifier.load_state_dict(classifier_model,strict=False)
         freeze(self.classifier)
@@ -233,7 +233,7 @@ class LMAC(nn.Module):
                         f_min = 0,
                         f_max=8000,
                         n_mels=80, 
-                        sample_rate=44100,)
+                        sample_rate=44100,).to(DEVICE)
         mask_in_mel = torch.log1p(X_in @ fbank)
         #mask in mel: Batch time mel
         #mask_in_mel = torch.log1p(mask_in_mel)
@@ -300,11 +300,10 @@ def train_one_epoch(epoch_index, training_loader,model,optimizer):
         optimizer.zero_grad()
 
         # Make predictions for this batch
-        pred = model(inputs)# X logits M h
-        print(f"{pred[1].shape=},{labels.shape=}")
+        pred = model(inputs.to(DEVICE))# X logits M h
 
         # Compute the loss and its gradients
-        loss = model.compute_objectives(pred,labels,stage="train")
+        loss = model.compute_objectives(pred, labels.to(DEVICE), stage="train")
         loss.backward()
 
         # Adjust learning weights
@@ -320,20 +319,17 @@ def train_one_epoch(epoch_index, training_loader,model,optimizer):
     return last_loss
 
 if __name__ == "__main__":
-    embedding_path = "/root/Travail/NMF/Listenable_maps/models/1234/save/CKPT+2023-03-12+22-42-31+00/embedding_model.ckpt"
-    classif_path ="/root/Travail/NMF/Listenable_maps/models/1234/save/CKPT+2023-03-12+22-42-31+00/classifier.ckpt"
+    embedding_path = "/lium/raid-b/tahon/audIBle/checkpoints-lmac/embedding_model.ckpt"
+    classif_path ="/lium/raid-b/tahon/audIBle/checkpoints-lmac/classifier.ckpt"
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    path_to_model = '.../models/model_{}_{}'.format(timestamp, e+1)
     lmac = LMAC(embedding_path=embedding_path,classifier_path=classif_path,emb_dim=2048,n_class=50)
     lmac.to(DEVICE)
-    train_esc50_set = ESC_50(root="/mnt/data/",part="train")
-    test_esc50_set = ESC_50(root="/mnt/data/",part="test")
-    valid_esc50_set = ESC_50(root="/mnt/data/",part="valid")
-    train_esc50_loader = DataLoader(train_esc50_set,batch_size=4)
-    valid_esc50_loader = DataLoader(valid_esc50_set,batch_size=4)
+    train_esc50_set = ESC_50(root="/lium/corpus/vrac/tmario/",part="train")
+    test_esc50_set = ESC_50(root="/lium/corpus/vrac/tmario/",part="test")
+    valid_esc50_set = ESC_50(root="/lium/corpus/vrac/tmario/",part="valid")
+    train_esc50_loader = DataLoader(train_esc50_set,batch_size=16)
+    valid_esc50_loader = DataLoader(valid_esc50_set,batch_size=16)
     
-    train_esc50_loader.to(DEVICE)
-    valid_esc50_loader.to(DEVICE)
 
     #dummy = torch.rand((8,1,44100*5))
     #res = lmac(dummy)
@@ -344,6 +340,7 @@ if __name__ == "__main__":
     best_loss = 100
     best_epoch=0
     for e in range(EPOCH):
+        path_to_model = '.../models/model_{}_{}'.format(timestamp, e+1)
         l_loss = train_one_epoch(epoch_index=e+1,training_loader=train_esc50_loader,model=lmac,optimizer=optimizer)
         lmac.eval()
 
@@ -351,8 +348,8 @@ if __name__ == "__main__":
         with torch.no_grad():
             for i, vdata in enumerate(valid_esc50_loader):
                 vinputs, vlabels = vdata
-                voutputs = lmac(vinputs)
-                vloss = lmac.compute_objectives(voutputs, vlabels,stage='valid')
+                voutputs = lmac(vinputs.to(DEVICE))
+                vloss = lmac.compute_objectives(voutputs, vlabels.to(DEVICE),stage='valid')
                 running_vloss += vloss
 
         avg_vloss = running_vloss / (i + 1)
