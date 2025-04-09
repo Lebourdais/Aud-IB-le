@@ -13,8 +13,8 @@ class PrototypeLayer(nn.Module):
     def forward(self, x):
         # x: (batch_size, T, H, W)
         if self.kernel is None:
-            self.kernel = nn.Parameter(torch.rand(
-                self.n_prototypes, *x.shape[1:]), requires_grad=True)
+            self.kernel = nn.Parameter(torch.randn(
+                self.n_prototypes, *x.shape[1:]), requires_grad=True).to(x.device)  # shape: (P, T, H, W)
 
         x_expanded = x.unsqueeze(1)  # shape: (B, 1, T, H, W)
         kernel_expanded = self.kernel.unsqueeze(0)  # shape: (1, P, T, H, W)
@@ -57,7 +57,7 @@ class WeightedSum(nn.Module):
             else:
                 shape = (x.size(1), x.size(2))  # (P, T)
             init_val = 1.0 / shape[-1]
-            self.kernel = nn.Parameter(torch.full(shape, init_val))
+            self.kernel = nn.Parameter(torch.full(shape, init_val)).to(x.device)  # shape: (P, T) or (P, H, W)
 
         # Normalize the kernel along the last axis
         norm_kernel = F.normalize(self.kernel, p=2, dim=-1)
