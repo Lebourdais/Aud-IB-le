@@ -37,7 +37,7 @@ class Classifier(torch.nn.Module):
         out_neurons=1211,
     ):
         super().__init__()
-        self.blocks = nn.ModuleList()
+        self.blocks = torch.nn.ModuleList()
 
         for block_index in range(lin_blocks):
             self.blocks.extend(

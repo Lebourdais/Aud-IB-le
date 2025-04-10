@@ -5,11 +5,13 @@ from audIBle.data.datasets import ESC_50,WHAMDataset,combine_batches
 import torch.nn.functional as F
 import torchaudio
 import torchaudio.transforms as tr
+import yaml
 
 from datetime import datetime
 from audIBle.nn.encoders_LMAC import Cnn14
 from audIBle.nn.decoders_LMAC import CNN14PSI_stft
 from audIBle.nn.classifier_LMAC import Classifier
+from argparse import ArgumentParser
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 def tv_loss(mask, tv_weight=1, power=2, border_penalty=0.3):
@@ -66,7 +68,7 @@ class LMAC(nn.Module):
     G_W = 4
     CROSSCOR_TH=0.6
     BIN_TH=0.35
-    def __init__(self,embedding_path,classifier_path,emb_dim,n_class,verbose=True,wham_path = ""):
+    def __init__(self,embedding_path,classifier_path,emb_dim,n_class,verbose=True,wham_path = None):
         super(LMAC, self).__init__()
         self.verbose = verbose
         embedding_model = torch.load(embedding_path,map_location=DEVICE)
@@ -83,7 +85,9 @@ class LMAC(nn.Module):
         self.stft_power = SpecMag(power=0.5)
 
         self.mel = tr.MelScale(n_mels=80,sample_rate=44100,n_stft=513,f_min=0,f_max=8000)#magic value
-        self.Wham_loader = DataLoader(WHAMDataset(data_dir=wham_path,target_length=5.,sample_rate=44100))
+        self.wham_path = wham_path
+        if wham_path is not None:
+            self.Wham_loader = DataLoader(WHAMDataset(data_dir=wham_path,target_length=5.,sample_rate=44100))
 
 
     def interpret_computation_steps(self,X):
@@ -122,8 +126,9 @@ class LMAC(nn.Module):
             X_stft_logpower,
         )
     def compute_forward(self,X):
-
-        X = combine_batches(X,self.Wham_loader)
+        if self.wham_path is not None:
+            X = combine_batches(X,self.Wham_loader)
+        
         #print("Compute forward")
         X_stft = self.stft(X)
 
@@ -264,14 +269,19 @@ def train_one_epoch(epoch_index, training_loader,model,optimizer):
     return last_loss
 
 if __name__ == "__main__":
-    embedding_path = "/lium/raid-b/tahon/audIBle/checkpoints-lmac/embedding_model.ckpt"
-    classif_path ="/lium/raid-b/tahon/audIBle/checkpoints-lmac/classifier.ckpt"
+    parser = ArgumentParser()
+    parser.add_argument("paths",help="file containing paths")
+    args = parser.parse_args()
+    params = yaml.load(open(args.paths))
+
+    embedding_path = params.embedding_path
+    classif_path = params.classif_path
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     lmac = LMAC(embedding_path=embedding_path,classifier_path=classif_path,emb_dim=2048,n_class=50)
     lmac.to(DEVICE)
-    train_esc50_set = ESC_50(root="/lium/corpus/vrac/tmario/",part="train")
-    test_esc50_set = ESC_50(root="/lium/corpus/vrac/tmario/",part="test")
-    valid_esc50_set = ESC_50(root="/lium/corpus/vrac/tmario/",part="valid")
+    train_esc50_set = ESC_50(root=params.data_root,part="train")
+    #test_esc50_set = ESC_50(root=params.data_root,part="test")
+    valid_esc50_set = ESC_50(root=params.data_root,part="valid")
     train_esc50_loader = DataLoader(train_esc50_set,batch_size=16)
     valid_esc50_loader = DataLoader(valid_esc50_set,batch_size=16)
     
@@ -284,11 +294,12 @@ if __name__ == "__main__":
     EPOCH = 100
     best_loss = 100
     best_epoch=0
+    
     for e in range(EPOCH):
-        path_to_model = '.../models/model_{}_{}'.format(timestamp, e+1)
+        path_to_model = f'{params.output_root}/model_{timestamp}_{e+1}'
         l_loss = train_one_epoch(epoch_index=e+1,training_loader=train_esc50_loader,model=lmac,optimizer=optimizer)
         lmac.eval()
-
+        running_vloss = 0.
         # Disable gradient computation and reduce memory consumption.
         with torch.no_grad():
             for i, vdata in enumerate(valid_esc50_loader):
