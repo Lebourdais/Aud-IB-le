@@ -2,12 +2,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import torchaudio
 
 from audIBle.nn.apnet_layers import PrototypeLayer
 from audIBle.nn.apnet_layers import WeightedSum
+import math
+
+def normalize_wav(wav):
+    energy = torch.sum(wav ** 2, dim=-1, keepdim=True)
+    energy = torch.clamp(energy, min=1e-6)  # Avoid division by zero
+    wav = wav / torch.sqrt(energy)
+    return wav
 
 class APNetEncoder(nn.Module):
     def __init__(self, n_filters, filter_size, pool_size, dilation_rate=(1, 1), use_batch_norm=False):
@@ -114,6 +119,7 @@ class APNetDecoder(nn.Module):
 class APNet(nn.Module):
     def __init__(self, 
                  n_classes=10,
+                 seg_len=5, # duration in seconds, necessarily fixed in this model :(
                  n_filters=[64, 128, 256], 
                  filter_size=3, 
                  pool_size=2, 
@@ -122,36 +128,62 @@ class APNet(nn.Module):
                  final_activation='tanh',
                  n_prototypes=10,
                  distance='euclidean',
-                 use_weighted_sum=True):
+                 use_weighted_sum=True,
+                 mel_spec_param={"sample_rate":44100, "n_fft":4096, "hop_length":1024, "n_mels":256, "normalize": True},):
         
         super(APNet, self).__init__()
+        nfreq = mel_spec_param["n_mels"]
+        duration_sample = seg_len * mel_spec_param["sample_rate"]
+        ntime = math.ceil(duration_sample // mel_spec_param["hop_length"])+1
+        print(f"{ntime=}")
+        self.spec = torchaudio.transforms.MelSpectrogram(**mel_spec_param)
         self.encoder = APNetEncoder(n_filters, filter_size, pool_size, dilation_rate, use_batch_norm)
         self.decoder = APNetDecoder(n_filters, filter_size, pool_size, use_batch_norm, final_activation)
-        self.proto_layer = PrototypeLayer(n_prototypes=n_prototypes, distance=distance, use_weighted_sum=use_weighted_sum)
-        self.weighted_sum = WeightedSum(D3=False)
+        self.proto_layer = PrototypeLayer(n_prototypes=n_prototypes, n_chan_latent=n_filters[-1], n_freq_latent=nfreq//4, n_frames_latent=ntime//4, distance=distance, use_weighted_sum=use_weighted_sum)
+        self.weighted_sum = WeightedSum(D3=False, n_freq_latent=nfreq//4, n_prototypes=n_prototypes)
         self.classif = nn.Linear(n_prototypes, n_classes, bias=False)
         self.activation = nn.Softmax(dim=1)
+        self.n_classes = n_classes
 
-    def forward(self, x):
-        z, mask1, mask2 = self.encoder(x)
-        print("Shape after encoder:", z.shape)
-        
+    def forward(self, wav, return_all=False):
+        wav = normalize_wav(wav)
+        spec_feat = self.spec(wav)
+        spec_feat = torch.log(1+spec_feat)
+        # print("Shape after MelSpectrogram:", spec_feat.shape)
+
+        z, mask1, mask2 = self.encoder(spec_feat)
+        # print("Shape after encoder:", z.shape)
+        #normalize Z
+        z = F.normalize(z, p=2)
+
         x_hat = self.decoder(z, mask1, mask2)
-        print("Shape after decoder:", x.shape)
-        
+        # print("Shape after decoder:", x_hat.shape)
+    
         # distance between z and prototypes
-        d = self.proto_layer(z)
-        print("Shape after prototype layer:", d.shape)
+        sim = self.proto_layer(z)
+        # print("Distance full:", sim)
+        # print("Shape after prototype layer:", sim.shape)
         
-        d = torch.exp(-d)
-        print("Shape after applying exp to distances:", d.shape)
+        d = torch.exp(-sim)
+        # print(f"distance: {d}")
+        # print("Shape after applying exp to distances:", d.shape)
 
         # weighted sum of prototypes
-        y = self.weighted_sum(d) 
-        print("Shape after weighted sum:", y.shape)
+        pred = self.weighted_sum(d) 
+        # print("Prediction weighted sum:", pred)
+        # print("Shape after weighted sum:", pred.shape)
 
         # classification
-        y = self.classif(y)
-        print("Shape after classification:", y.shape)
+        pred = self.classif(pred)
+        # print("Prediction:", pred)
+        # print("Shape after classification:", pred.shape)
+        if return_all:
+            return pred, x_hat.squeeze(1), sim, spec_feat.squeeze(1), z
+        
+        return pred, x_hat.squeeze(1), sim, spec_feat.squeeze(1)
 
-        return x_hat, z, y
+    def get_prototypes(self):
+        proto = self.proto_layer.kernel
+        # Normalize the prototypes
+        proto = F.normalize(proto, p=2)
+        return proto
