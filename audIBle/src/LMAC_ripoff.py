@@ -1,14 +1,17 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from audIBle.data.datasets import ESC_50
+from audIBle.data.datasets import ESC_50,WHAMDataset,combine_batches
 import torch.nn.functional as F
 import torchaudio
 import torchaudio.transforms as tr
+import yaml
 
 from datetime import datetime
-from encoders import Cnn14
-from decoders import CNN14PSI_stft
+from audIBle.nn.encoders_LMAC import Cnn14
+from audIBle.nn.decoders_LMAC import CNN14PSI_stft
+from audIBle.nn.classifier_LMAC import Classifier
+from argparse import ArgumentParser
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 def tv_loss(mask, tv_weight=1, power=2, border_penalty=0.3):
@@ -40,83 +43,23 @@ class SpecMag(nn.Module):
             return torch.log(spectr + eps)
         return spectr
     
-class Classifier(torch.nn.Module):
-    """This class implements the cosine similarity on the top of features.
 
-    Arguments
-    ---------
-    input_size : int
-        Expected size of input dimension.
-    device : str
-        Device used, e.g., "cpu" or "cuda".
-    lin_blocks : int
-        Number of linear layers.
-    lin_neurons : int
-        Number of neurons in linear layers.
-    out_neurons : int
-        Number of classes.
-
-    Example
-    -------
-    >>> classify = Classifier(input_size=2, lin_neurons=2, out_neurons=2)
-    >>> outputs = torch.tensor([ [1., -1.], [-9., 1.], [0.9, 0.1], [0.1, 0.9] ])
-    >>> outputs = outputs.unsqueeze(1)
-    >>> cos = classify(outputs)
-    >>> (cos < -1.0).long().sum()
-    tensor(0)
-    >>> (cos > 1.0).long().sum()
-    tensor(0)
-    """
-
-    def __init__(
-        self,
-        input_size,
-        device="cpu",
-        lin_blocks=0,
-        lin_neurons=192,
-        out_neurons=1211,
-    ):
-        super().__init__()
-        self.blocks = nn.ModuleList()
-
-        for block_index in range(lin_blocks):
-            self.blocks.extend(
-                [
-                    nn.BatchNorm1d(num_features=input_size),
-                    nn.Linear(input_size,lin_neurons),
-                ]
-            )
-            input_size = lin_neurons
-
-        # Final Layer
-        self.weight = nn.Parameter(
-            torch.Tensor(out_neurons, input_size, device=device)
-        )
-        nn.init.xavier_uniform_(self.weight)
-
-    def forward(self, x):
-        """Returns the output probabilities over speakers.
-
-        Arguments
-        ---------
-        x : torch.Tensor
-            Torch tensor.
-
-        Returns
-        -------
-        out : torch.Tensor
-            Output probabilities over speakers.
-        """
-        for layer in self.blocks:
-            x = layer(x)
-
-        # Need to be normalized
-        x = F.linear(F.normalize(x.squeeze(1)), F.normalize(self.weight))
-        return x.unsqueeze(1)
 
 def freeze(layer):
     for param in layer.parameters():
         param.requires_grad = False
+class WHAMAugment(nn.Module):
+    def __init__(self,duration=5.):
+        super(WHAMAugment).__init__()
+        self.duration = duration
+        self.dataset = []
+    def forward(self,X):
+        sig_length = X.shape[1]
+        indices = torch.randint(0,len(self.dataset),X.shape[0])
+        for i in indices:
+            noise = self.dataset[i]
+            noise_length = noise.shape[1]
+            necessary_pad = sig_length - noise_length
 class LMAC(nn.Module):
     L_IN_W = 4
     L_OUT_W = 0.2
@@ -125,7 +68,7 @@ class LMAC(nn.Module):
     G_W = 4
     CROSSCOR_TH=0.6
     BIN_TH=0.35
-    def __init__(self,embedding_path,classifier_path,emb_dim,n_class,verbose=True):
+    def __init__(self,embedding_path,classifier_path,emb_dim,n_class,verbose=True,wham_path = None):
         super(LMAC, self).__init__()
         self.verbose = verbose
         embedding_model = torch.load(embedding_path,map_location=DEVICE)
@@ -142,6 +85,9 @@ class LMAC(nn.Module):
         self.stft_power = SpecMag(power=0.5)
 
         self.mel = tr.MelScale(n_mels=80,sample_rate=44100,n_stft=513,f_min=0,f_max=8000)#magic value
+        self.wham_path = wham_path
+        if wham_path is not None:
+            self.Wham_loader = DataLoader(WHAMDataset(data_dir=wham_path,target_length=5.,sample_rate=44100))
 
 
     def interpret_computation_steps(self,X):
@@ -180,8 +126,12 @@ class LMAC(nn.Module):
             X_stft_logpower,
         )
     def compute_forward(self,X):
+        if self.wham_path is not None:
+            X = combine_batches(X,self.Wham_loader)
+        
         #print("Compute forward")
         X_stft = self.stft(X)
+
         
         X_mel = torch.log1p(self.mel(X_stft)).transpose(2,3)
          
@@ -203,7 +153,7 @@ class LMAC(nn.Module):
     def compute_objectives(self, pred, label, stage='train'):
         """Helper function to compute the objectives"""
         (
-            X,
+            X,#Noisy data
             predictions,
             xhat,
             _,
@@ -319,14 +269,19 @@ def train_one_epoch(epoch_index, training_loader,model,optimizer):
     return last_loss
 
 if __name__ == "__main__":
-    embedding_path = "/lium/raid-b/tahon/audIBle/checkpoints-lmac/embedding_model.ckpt"
-    classif_path ="/lium/raid-b/tahon/audIBle/checkpoints-lmac/classifier.ckpt"
+    parser = ArgumentParser()
+    parser.add_argument("paths",help="file containing paths")
+    args = parser.parse_args()
+    params = yaml.load(open(args.paths))
+
+    embedding_path = params.embedding_path
+    classif_path = params.classif_path
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     lmac = LMAC(embedding_path=embedding_path,classifier_path=classif_path,emb_dim=2048,n_class=50)
     lmac.to(DEVICE)
-    train_esc50_set = ESC_50(root="/lium/corpus/vrac/tmario/",part="train")
-    test_esc50_set = ESC_50(root="/lium/corpus/vrac/tmario/",part="test")
-    valid_esc50_set = ESC_50(root="/lium/corpus/vrac/tmario/",part="valid")
+    train_esc50_set = ESC_50(root=params.data_root,part="train")
+    #test_esc50_set = ESC_50(root=params.data_root,part="test")
+    valid_esc50_set = ESC_50(root=params.data_root,part="valid")
     train_esc50_loader = DataLoader(train_esc50_set,batch_size=16)
     valid_esc50_loader = DataLoader(valid_esc50_set,batch_size=16)
     
@@ -339,11 +294,12 @@ if __name__ == "__main__":
     EPOCH = 100
     best_loss = 100
     best_epoch=0
+    
     for e in range(EPOCH):
-        path_to_model = '.../models/model_{}_{}'.format(timestamp, e+1)
+        path_to_model = f'{params.output_root}/model_{timestamp}_{e+1}'
         l_loss = train_one_epoch(epoch_index=e+1,training_loader=train_esc50_loader,model=lmac,optimizer=optimizer)
         lmac.eval()
-
+        running_vloss = 0.
         # Disable gradient computation and reduce memory consumption.
         with torch.no_grad():
             for i, vdata in enumerate(valid_esc50_loader):

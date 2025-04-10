@@ -1,0 +1,4 @@
+embedding_path: /root/Travail/NMF/embedding_model.ckpt
+classif_path: /root/Travail/NMF/classifier.ckpt
+data_root: /mnt/data
+output_root : /root/Travail/NMF/Aud-IB-le/audIBle/data/
