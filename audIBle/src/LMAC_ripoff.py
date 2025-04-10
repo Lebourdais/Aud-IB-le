@@ -7,8 +7,9 @@ import torchaudio
 import torchaudio.transforms as tr
 
 from datetime import datetime
-from encoders import Cnn14
-from decoders import CNN14PSI_stft
+from audIBle.nn.encoders_LMAC import Cnn14
+from audIBle.nn.decoders_LMAC import CNN14PSI_stft
+from audIBle.nn.classifier_LMAC import Classifier
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 def tv_loss(mask, tv_weight=1, power=2, border_penalty=0.3):
@@ -40,79 +41,7 @@ class SpecMag(nn.Module):
             return torch.log(spectr + eps)
         return spectr
     
-class Classifier(torch.nn.Module):
-    """This class implements the cosine similarity on the top of features.
 
-    Arguments
-    ---------
-    input_size : int
-        Expected size of input dimension.
-    device : str
-        Device used, e.g., "cpu" or "cuda".
-    lin_blocks : int
-        Number of linear layers.
-    lin_neurons : int
-        Number of neurons in linear layers.
-    out_neurons : int
-        Number of classes.
-
-    Example
-    -------
-    >>> classify = Classifier(input_size=2, lin_neurons=2, out_neurons=2)
-    >>> outputs = torch.tensor([ [1., -1.], [-9., 1.], [0.9, 0.1], [0.1, 0.9] ])
-    >>> outputs = outputs.unsqueeze(1)
-    >>> cos = classify(outputs)
-    >>> (cos < -1.0).long().sum()
-    tensor(0)
-    >>> (cos > 1.0).long().sum()
-    tensor(0)
-    """
-
-    def __init__(
-        self,
-        input_size,
-        device="cpu",
-        lin_blocks=0,
-        lin_neurons=192,
-        out_neurons=1211,
-    ):
-        super().__init__()
-        self.blocks = nn.ModuleList()
-
-        for block_index in range(lin_blocks):
-            self.blocks.extend(
-                [
-                    nn.BatchNorm1d(num_features=input_size),
-                    nn.Linear(input_size,lin_neurons),
-                ]
-            )
-            input_size = lin_neurons
-
-        # Final Layer
-        self.weight = nn.Parameter(
-            torch.Tensor(out_neurons, input_size, device=device)
-        )
-        nn.init.xavier_uniform_(self.weight)
-
-    def forward(self, x):
-        """Returns the output probabilities over speakers.
-
-        Arguments
-        ---------
-        x : torch.Tensor
-            Torch tensor.
-
-        Returns
-        -------
-        out : torch.Tensor
-            Output probabilities over speakers.
-        """
-        for layer in self.blocks:
-            x = layer(x)
-
-        # Need to be normalized
-        x = F.linear(F.normalize(x.squeeze(1)), F.normalize(self.weight))
-        return x.unsqueeze(1)
 
 def freeze(layer):
     for param in layer.parameters():

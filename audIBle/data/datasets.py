@@ -141,11 +141,11 @@ def download_wham(wham_path: str):
     temp_path = os.path.join(wham_path, "temp_download_wham")
 
     # download the data
-    fetch(
-        "wham_noise.zip",
-        "https://my-bucket-a8b4b49c25c811ee9a7e8bba05fa24c7.s3.amazonaws.com",
-        savedir=temp_path,
-    )
+    # fetch(
+    #     "wham_noise.zip",
+    #     "https://my-bucket-a8b4b49c25c811ee9a7e8bba05fa24c7.s3.amazonaws.com",
+    #     savedir=temp_path,
+    # )
 
     # unpack the .zip file
     shutil.unpack_archive(os.path.join(temp_path, "wham_noise.zip"), wham_path)
