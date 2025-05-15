@@ -135,20 +135,25 @@ class APNet(nn.Module):
         nfreq = mel_spec_param["n_mels"]
         duration_sample = seg_len * mel_spec_param["sample_rate"]
         ntime = math.ceil(duration_sample // mel_spec_param["hop_length"])+1
-        print(f"{ntime=}")
+        pad_size = 4 - (ntime % 4)
         self.spec = torchaudio.transforms.MelSpectrogram(**mel_spec_param)
         self.encoder = APNetEncoder(n_filters, filter_size, pool_size, dilation_rate, use_batch_norm)
         self.decoder = APNetDecoder(n_filters, filter_size, pool_size, use_batch_norm, final_activation)
-        self.proto_layer = PrototypeLayer(n_prototypes=n_prototypes, n_chan_latent=n_filters[-1], n_freq_latent=nfreq//4, n_frames_latent=ntime//4, distance=distance, use_weighted_sum=use_weighted_sum)
+        self.proto_layer = PrototypeLayer(n_prototypes=n_prototypes, n_chan_latent=n_filters[-1], n_freq_latent=nfreq//4, n_frames_latent=(ntime+pad_size)//4, distance=distance, use_weighted_sum=use_weighted_sum)
         self.weighted_sum = WeightedSum(D3=False, n_freq_latent=nfreq//4, n_prototypes=n_prototypes)
         self.classif = nn.Linear(n_prototypes, n_classes, bias=False)
         self.activation = nn.Softmax(dim=1)
         self.n_classes = n_classes
+        self.pad_size = pad_size
 
-    def forward(self, wav, return_all=False):
+    def forward(self, wav, return_all=False, return_mask = False):
         wav = normalize_wav(wav)
         spec_feat = self.spec(wav)
-        spec_feat = torch.log(1+spec_feat)
+        spec_feat = torch.log(1 + spec_feat) 
+        if spec_feat.shape[-1] % 4 != 0:
+            # Pad the last dimension to be divisible by 4
+            spec_feat = F.pad(spec_feat, (0, self.pad_size), mode='constant', value=0)
+
         # print("Shape after MelSpectrogram:", spec_feat.shape)
 
         z, mask1, mask2 = self.encoder(spec_feat)
@@ -178,8 +183,9 @@ class APNet(nn.Module):
         # print("Prediction:", pred)
         # print("Shape after classification:", pred.shape)
         if return_all:
+            if return_mask:
+                return pred, x_hat.squeeze(1), sim, spec_feat.squeeze(1), z, mask1, mask2
             return pred, x_hat.squeeze(1), sim, spec_feat.squeeze(1), z
-        
         return pred, x_hat.squeeze(1), sim, spec_feat.squeeze(1)
 
     def get_prototypes(self):

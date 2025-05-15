@@ -289,3 +289,52 @@ class ESC_50(AudioDataset):
         from zipfile import ZipFile
         with ZipFile(os.path.join(self.root, self.filename), 'r') as zip:
             zip.extractall(path=self.root)
+
+
+class UrbanSound8k(Dataset):
+    def __init__(self, csv_path, audio_dir, folds_to_use=[1], sample_rate=22050, duration=4, transform=None):
+        self.csv_path = csv_path
+        self.audio_dir = audio_dir
+        self.folds_to_use = folds_to_use
+        self.sample_rate = sample_rate
+        self.duration = duration
+        self.transform = transform
+
+        self.metadata = pd.read_csv(self.csv_path)
+        self.metadata = self.metadata[self.metadata['fold'].isin(folds_to_use)]
+
+        self.fixed_length = int(self.sample_rate * self.duration) if duration is not None else None
+        self.classes = ["air_conditioner", "car_horn", "children_playing", "dog_bark", "drilling",
+                        "engine_idling", "gun_shot", "jackhammer", "siren", "street_music"]
+
+    def __len__(self):
+        return len(self.metadata)
+
+    def __getitem__(self, idx):
+        row = self.metadata.iloc[idx]
+        file_path = os.path.join(self.audio_dir, f"fold{row['fold']}", row['slice_file_name'])
+        label = row['classID']
+
+        waveform, sr = torchaudio.load(file_path)
+
+        # Resample if needed
+        if sr != self.sample_rate:
+            resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=self.sample_rate)
+            waveform = resampler(waveform)
+
+        # Convert to mono if stereo
+        if waveform.shape[0] > 1:
+            waveform = torch.mean(waveform, dim=0, keepdim=True)
+
+        # Pad or truncate
+        if self.fixed_length is not None:
+            if waveform.shape[1] < self.fixed_length:
+                pad_size = self.fixed_length - waveform.shape[1]
+                waveform = torch.nn.functional.pad(waveform, (0, pad_size))
+            else:
+                waveform = waveform[:, :self.fixed_length]
+
+        if self.transform:
+            waveform = self.transform(waveform)
+
+        return waveform, label

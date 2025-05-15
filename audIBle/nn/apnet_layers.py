@@ -20,7 +20,7 @@ class PrototypeLayer(nn.Module):
         kernel_reshape = self.kernel.unsqueeze(0)
         kernel_reshape_normalized = F.normalize(kernel_reshape, p=2)
         full_dist = (x_reshape - kernel_reshape_normalized).pow(2)
-        dist = full_dist.mean(dim=-1).mean(dim=2)
+        dist = full_dist.sum(dim=-1).mean(dim=2)
         return dist
 
 class WeightedSum(nn.Module):
