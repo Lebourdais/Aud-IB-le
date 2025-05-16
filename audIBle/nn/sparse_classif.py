@@ -14,7 +14,8 @@ class SparseClassifier(nn.Module):
                  sae_dim: int = 256,
                  sparsity: float = 0.05,
                  method: str = "top-k",
-                 freeze_autoencoder: bool = False):
+                 freeze_autoencoder: bool = False,
+                 decode_sae_out: bool = False):
         super(SparseClassifier,self).__init__()
 
         self.freeze_autoencoder = freeze_autoencoder
@@ -29,6 +30,7 @@ class SparseClassifier(nn.Module):
                        method=method)
         self.classif_head = nn.Linear(sae_dim,n_classes,bias=False)
         self.pool = TemporalAttentionPooling(hidden_dim=sae_dim)
+        self.decode_sae_out = decode_sae_out
 
     def forward(self, wav):
         """
@@ -43,14 +45,28 @@ class SparseClassifier(nn.Module):
         # returns: reconstructed spectrogram, input spectrogram, latent rep, enhanced latent rep (unused for now)
         if self.freeze_autoencoder:
             with torch.no_grad():
-                spec_reconstruct, spec, hidden, _ = self.audio_ae(wav) 
+                # spec_reconstruct, spec, hidden, _ = self.audio_ae(wav) 
+                spec, hidden = self.audio_ae.encoder(wav)
+                if not self.decode_sae_out:
+                    spec_reconstruct = self.audio_ae.decode(hidden)
         else:
-            spec_reconstruct, spec, hidden, _ = self.audio_ae(wav) 
+            # spec_reconstruct, spec, hidden, _ = self.audio_ae(wav) 
+            spec, hidden = self.audio_ae.encoder(wav)
+            if not self.decode_sae_out:
+                spec_reconstruct = self.audio_ae.decode(hidden)
+
         hidden = hidden.permute(0,2,1)    
         # print(A.shape)
         # sparse autoencoder applied to the latent representation of the input
         b, h, t = hidden.shape
         hidden_reconstruct, sparse_latent = self.sae(hidden)
+
+        if self.decode_sae_out:
+            if self.freeze_autoencoder:
+                with torch.no_grad():
+                    spec_reconstruct = self.audio_ae.decode(hidden_reconstruct)
+            else:
+                spec_reconstruct = self.audio_ae.decode(hidden_reconstruct)
 
         # temporal attentive pooling on the SAE latent representation before classifying
         Z_pooled = self.pool(sparse_latent)
