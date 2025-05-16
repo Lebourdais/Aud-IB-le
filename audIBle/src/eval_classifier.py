@@ -117,7 +117,6 @@ if __name__ == "__main__":
 
     parser.add_argument('--conf_id', type=str, help="Identifier of the configuration to test.")
     parser.add_argument("--seed", type=int, help="Seed used to train the model.")
-    parser.add_argument("--out_dir", type=str, help="Directory where to save the metrics.")
     parser.add_argument("--fold", type=int, help="Dataset fold used to evaluate the model.")
     args = parser.parse_args()
 
@@ -164,18 +163,28 @@ if __name__ == "__main__":
     
     # report the data and save them
     # Convert results dictionary to DataFrame
+    out_dir = os.path.join(exp_root,"metrics")
     df = pd.DataFrame(results)
 
     # Compute mean and std for each metric
     stats = df.agg(['mean', 'std']).to_dict()
-
-    # Prepare output directory
-    os.makedirs(args.out_dir, exist_ok=True)
-
+    
     # Save per-file metrics
-    df.to_csv(os.path.join(args.out_dir, f"metrics_fold{args.fold}.csv"), index=False)
+    os.makedirs(out_dir, exist_ok=True)
+    df.to_csv(os.path.join(out_dir, f"metrics_fold{args.fold}.csv"), index=False)
 
     # Save summary statistics
-    with open(os.path.join(args.out_dir, f"metrics_summary_fold{args.fold}.json"), "w") as f:
+    with open(os.path.join(out_dir, f"metrics_summary_fold{args.fold}.json"), "w") as f:
         json.dump(stats, f, indent=2)
+
+    print("\nSummary metrics for fold", args.fold)
+    print("=" * 40)
+    for metric, values in stats.items():
+        mean = values.get('mean', None)
+        std = values.get('std', None)
+        if mean is not None and std is not None:
+            print(f"{metric:12s}: mean = {mean:.4f} | std = {std:.4f}")
+        else:
+            print(f"{metric:12s}: mean = {mean} | std = {std}")
+    print("=" * 40)
 
