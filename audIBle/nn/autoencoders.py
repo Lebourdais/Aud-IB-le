@@ -63,6 +63,9 @@ class SpecAE(nn.Module):
         x_hat, z, z_att, feat = self.enc_dec(x)
         return x_hat, x, z, z_att
     
+    def decode(self,z):
+        return self.enc_dec.decode(z)
+
     @staticmethod
     def normalize_wav(wav):
         energy = torch.sum(wav ** 2, dim=-1, keepdim=True)
