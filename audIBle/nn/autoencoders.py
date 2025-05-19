@@ -65,6 +65,13 @@ class SpecAE(nn.Module):
     
     def decode(self,z):
         return self.enc_dec.decode(z)
+    
+    def encode(self,x):
+        if self.normalize_audio:
+            x = self.normalize_wav(x)
+        x = self.spec(x)
+        z, feat = self.enc_dec.encode(x)
+        return x, z
 
     @staticmethod
     def normalize_wav(wav):
