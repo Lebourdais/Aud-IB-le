@@ -1,5 +1,5 @@
 from audIBle.nn.autoencoders import SpecAE
-from audIBle.nn.sparse_classif import SparseClassifier
+from audIBle.nn.sparse_classif import SparseClassifier, SparseAEClassifier
 from audIBle.data.datasets import UrbanSound8k
 
 import torch
@@ -9,11 +9,13 @@ import os
 from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, log_loss
 
+import tqdm
 
 def eval(model: torch.nn.Module, 
          dataset: torch.utils.data.Dataset, 
          metrics: list =["acc", "auc", "f1", "precision", "recall", "log_loss", 'mse_spec', 'mse_sae'], 
-         device:str=None):
+         device:str=None,
+         is_asae: bool = False):
     """Evaluate the sparse classifier model
 
     Args:
@@ -28,6 +30,8 @@ def eval(model: torch.nn.Module,
     model.eval()
     if device is None:
         device = next(model.parameters()).device
+    if is_asae:
+        metrics.remove("mse_sae")
     results = {metric: [] for metric in metrics}
     all_labels = []
     all_probs = []
@@ -36,25 +40,30 @@ def eval(model: torch.nn.Module,
     mse_spec = []
 
     with torch.no_grad():
-        for i in range(len(dataset)):
+        for i in tqdm.tqdm(range(len(dataset)),desc="Evaluating classifier..."):
             x, y = dataset[i]
             if isinstance(x, np.ndarray):
                 x = torch.from_numpy(x)
-            if isinstance(y, np.ndarray):
-                y = torch.from_numpy(y)
+            if isinstance(y, np.int64):
+                y = torch.Tensor([y])
             x = x.unsqueeze(0).to(device)
             y = y.unsqueeze(0).to(device)
-            logits, spec_reconstruct, spec, hidden, hidden_reconstruct = model(x)
+            if is_asae:
+                logits, spec_reconstruct, spec, hidden = model(x)
+            else:    
+                logits, spec_reconstruct, spec, hidden, hidden_reconstruct = model(x)
             probs = torch.softmax(logits, dim=1)
             pred = torch.argmax(probs, dim=1)
-            all_labels.append(y.cpu().item())
+            all_labels.append(int(y[0].cpu()))
             all_probs.append(probs.cpu().numpy()[0])
             all_preds.append(pred.cpu().item())
-            mse_sae.append(torch.abs(hidden_reconstruct - hidden).pow(2).mean().cpu().item())
+            if not is_asae:
+                mse_sae.append(torch.abs(hidden_reconstruct - hidden).pow(2).mean().cpu().item())
             mse_spec.append(torch.abs(spec_reconstruct-spec).pow(2).mean().cpu().item())
 
     results["mse_spec"] = mse_spec
-    results["mse_ae"] = mse_sae
+    if not is_asae:
+        results["mse_sae"] = mse_sae
 
     all_labels_np = np.array(all_labels)
     all_preds_np = np.array(all_preds)
@@ -116,14 +125,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--conf_id', type=str, help="Identifier of the configuration to test.")
+    parser.add_argument('--exp_tag', type=str, help="Tag of the experiments to select the appropriate folder.")
     parser.add_argument("--seed", type=int, help="Seed used to train the model.")
     parser.add_argument("--fold", type=int, help="Dataset fold used to evaluate the model.")
+    parser.add_argument("--is_asae", action="store_true")
     args = parser.parse_args()
 
     data_root = "/lium/corpus/vrac/tmario/sed/urbansound8k/urbansound8k"
 
-    exp_name = f"{args.conf_id}_sparse_classif_urbasound8k_{args.seed}"
-    exp_root = os.path.join(os.environ["EXP_ROOT"], "train/SAE/ae_debug/",exp_name)
+    #exp_name = f"{args.conf_id}_sparse_classif_urbasound8k_{args.seed}"
+    #exp_name = f"{args.conf_id}_sparse_classif_urbasound8k_{args.seed}"
+    exp_name = f"{args.conf_id}_asae_classif_urbasound8k_{args.seed}"
+    exp_root = os.path.join(os.environ["EXP_ROOT"], f"train/SAE/{args.exp_tag}/",exp_name)
 
     with open(os.path.join(exp_root, "config.json"), 'r') as fh:
         cfg = json.load(fh)
@@ -131,17 +144,31 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
+    if not args.is_asae:
     # load audio autoencoder used for feature extraction in the classifier
-    autoencoder = SpecAE(**cfg["model"]["autoencoder"])
-    ae_ckpt_path = cfg["model"]["ae_ckpt_path"]
-    if ae_ckpt_path is not None:
-        ae_ckpt = torch.load(ae_ckpt_path, map_location=device, weights_only=True)
-        autoencoder.load_state_dict(ae_ckpt)
+        autoencoder = SpecAE(**cfg["model"]["autoencoder"])
+        ae_ckpt_path = cfg["model"]["ae_ckpt_path"]
+        if ae_ckpt_path is not None:
+            ae_ckpt = torch.load(ae_ckpt_path, map_location=device, weights_only=True)
+            autoencoder.load_state_dict(ae_ckpt)
 
-    # prepare the sparse classifier
-    classif_params = cfg["model"]["classifier"]
-    classif_params["autoencoder"] = autoencoder
-    model = SparseClassifier(**classif_params)
+        # prepare the sparse classifier
+        classif_params = cfg["model"]["classifier"]
+        classif_params["autoencoder"] = autoencoder
+        model = SparseClassifier(**classif_params)
+    else:
+        state_dict_pth = os.path.join(cfg["model"]["asae_exp_path"], "best_model.pth")
+        state_dict = torch.load(state_dict_pth)
+        asae_cfg = os.path.join(cfg["model"]["asae_exp_path"], "config.json")
+        with open(asae_cfg, "r") as fh:
+            asae_cfg = json.load(fh)
+        
+        autoencoder = SpecAE(**asae_cfg["model"]) 
+        autoencoder.load_state_dict(state_dict=state_dict)
+
+        classif_params = cfg["model"]["classifier"]
+        classif_params["autoencoder"] = autoencoder
+        model = SparseAEClassifier(**classif_params)
 
     # load classifier checkpoint
     classif_ckpt_path = os.path.join(exp_root,"best_model.pth")
@@ -159,7 +186,10 @@ if __name__ == "__main__":
     results = eval(model=model, 
                    dataset=dataset, 
                    device=device, 
-                   metrics=["acc", "auc", "f1", "precision", "recall", "log_loss", 'mse_spec', 'mse_sae'])
+                   metrics=["acc", "auc", "f1", "precision", "recall", 'mse_spec', 'mse_sae'],
+                   is_asae=args.is_asae)
+
+    print([(i, len(results[i])) for i in results.keys()])
     
     # report the data and save them
     # Convert results dictionary to DataFrame

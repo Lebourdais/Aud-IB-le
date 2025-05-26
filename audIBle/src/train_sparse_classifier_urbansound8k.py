@@ -5,8 +5,8 @@ import tqdm
 import time
 
 from audIBle.data.datasets import UrbanSound8k
-from audIBle.nn.autoencoders import SpecAE
-from audIBle.nn.sparse_classif import SparseClassifier
+from audIBle.nn.autoencoders import SpecAE, SparseAttentiveAE
+from audIBle.nn.sparse_classif import SparseClassifier, SparseAEClassifier
 from audIBle.nn.utils import count_parameters
 
 from torch.utils.tensorboard import SummaryWriter
@@ -90,6 +90,9 @@ def train(config, conf_id, seed):
     # GPU omg
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    
+    model_type = config["model"].get("model_type", "vanilla_audio_ae")
+    
     # load autoencoder (pretrained or not)
     autoencoder = SpecAE(**config["model"]["autoencoder"])
     ae_ckpt_path = config["model"]["ae_ckpt_path"]

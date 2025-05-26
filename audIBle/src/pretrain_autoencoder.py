@@ -44,7 +44,7 @@ def train(config, conf_id, seed):
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     job_id = config["job_id"]
-    exp_name = f"{conf_id}_{timestamp}_{job_id}_spec_autoencoder_urbasound8k_{seed}"
+    # exp_name = f"{conf_id}_{timestamp}_{job_id}_spec_autoencoder_urbasound8k_{seed}"
     exp_name = f"{conf_id}_spec_autoencoder_urbasound8k_{seed}"
 
     config["conf_id"] = conf_id

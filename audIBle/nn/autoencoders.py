@@ -9,7 +9,7 @@ class SpecAE(nn.Module):
 
     def __init__(self,
                  normalize_audio = True,
-                 scale="lin",
+                 scale="log",
                  n_fft=1024,
                  win_length=1024,
                  hop_length=256,
@@ -20,7 +20,9 @@ class SpecAE(nn.Module):
                  hid_dims=[16, 32, 64, 128],
                  use_attention=False,
                  activation_slope=0.2,
-                 attention_dim=64):
+                 attention_dim=64,
+                 sparsity: float=None,
+                 sparse_method: str = "top-k"):
         """Spectrogram auto-encoder
 
         This module auto-encodes a spectrogram. It can later be used for a downstream task such as sound event classification, detection...
@@ -30,12 +32,22 @@ class SpecAE(nn.Module):
             ae_kw (dict, optional): parameters of the encoder (see `AttentiveAE`). Defaults to {"input_channels":1, "hid_dim": [16, 32, 64, 128],"use_attention":False, "activation_slope": 0.2, "attention_dim": 64}.
         """
         super(SpecAE,self).__init__()
-        self.enc_dec = AttentiveAE(input_channels=input_channels,
-                                   latent_dim=latent_dim,
-                                   hid_dims=hid_dims,
-                                   use_attention=use_attention,
-                                   activation_slope=activation_slope,
-                                   attention_dim=attention_dim)
+        if sparsity is None:
+            self.enc_dec = AttentiveAE(input_channels=input_channels,
+                                    latent_dim=latent_dim,
+                                    hid_dims=hid_dims,
+                                    use_attention=use_attention,
+                                    activation_slope=activation_slope,
+                                    attention_dim=attention_dim)
+        else:
+            self.enc_dec = SparseAttentiveAE(input_channels=input_channels,
+                                    latent_dim=latent_dim,
+                                    hid_dims=hid_dims,
+                                    use_attention=use_attention,
+                                    activation_slope=activation_slope,
+                                    attention_dim=attention_dim,
+                                    sparsity=sparsity,
+                                    sparse_method=sparse_method)
         
         self.spec = Spectrogram(scale=scale,
                  n_fft=n_fft,
@@ -44,6 +56,14 @@ class SpecAE(nn.Module):
                  center=center, 
                  pad=pad,)
         self.normalize_audio = normalize_audio
+        self.stft_params = {
+            "n_fft": n_fft,
+            "win_length": win_length,
+            "hop_length": hop_length,
+            "center": center,
+            "pad": pad,
+            "scale": scale
+        }
 
     def forward(self,x):
         """_summary_
@@ -73,6 +93,16 @@ class SpecAE(nn.Module):
         z, feat = self.enc_dec.encode(x)
         return x, z
 
+    def get_stft(self,x):
+        if self.normalize_audio:
+            x = self.normalize_wav(x)
+        x, phi = self.spec(x, return_phase=True)
+        return x, phi
+    
+    def get_stft_params(self):
+        return self.stft_params
+
+
     @staticmethod
     def normalize_wav(wav):
         energy = torch.sum(wav ** 2, dim=-1, keepdim=True)
@@ -92,17 +122,205 @@ class Spectrogram(nn.Module):
                                                       pad=pad)
         self.eps = 1e-6
 
-    def forward(self,x):
+    def forward(self,x,return_phase=False):
         x = self.spec(x)
+        phi = x.angle()
         x = x.abs()
         if self.scale == "log":
-            return torch.log(x+self.eps)
+            if not return_phase:
+                return torch.log(x+self.eps)
+            else:
+                return torch.log(x+self.eps), phi
         elif self.scale == "log_biais":
-            return torch.log(x+1)
+            if not return_phase:
+                return torch.log(x+1)
+            else:
+                return torch.log(x+1), phi
         elif self.scale == "db":
-            return 20 * torch.log10(x+self.eps)
+            if not return_phase:
+                return 20 * torch.log10(x+self.eps)
+            else:
+                return 20 * torch.log10(x+self.eps), phi
         else:
-            return x
+            if not return_phase:
+                return x
+            else:
+                return x, phi
+
+class SparseAttentiveAE(nn.Module):
+    """
+    Autoencoder of a spectrogram that compresses the frequency dimension and keeps the time dimension. 
+    It includes sparse constraints over the latent space using `top-k`.
+    
+    Input spectrogram shape: (batch, channels, frequencies, time)
+    """
+    def __init__(self, 
+                 input_channels=1, 
+                 input_freq_dim=513,  # Dimension fréquentielle d'entrée explicite
+                 hid_dims=[16, 32, 64, 128],
+                 latent_dim=256,
+                 sparsity=0.9,
+                 sparse_method="top-k",
+                 use_attention=False,
+                 activation_slope=0.2,
+                 attention_dim=64):
+        super(SparseAttentiveAE, self).__init__()
+        
+        self.input_freq_dim = input_freq_dim
+        # print(f"Input frequency dimension: {input_freq_dim}")
+        # print(f"Hidden dimensions: {hid_dims}")
+        self.latent_dim = hid_dims[-1]
+        kernel_size = (5,3)
+        padding = (2,1)
+        stride = (2,1)
+        
+        # Stocker ces valeurs pour le décodeur
+        self.kernel_size = kernel_size
+        self.padding = padding
+        self.stride = stride
+        
+        # Calculer les dimensions des features après chaque couche d'encodage
+        self.encoder_dims = [input_freq_dim]
+        curr_dim = input_freq_dim
+        for _ in range(len(hid_dims)):
+            curr_dim = (curr_dim + 2*padding[0] - kernel_size[0]) // stride[0] + 1
+            self.encoder_dims.append(curr_dim)
+        
+        self.final_freq_dim = self.encoder_dims[-1]
+        # print(f"Encoder dimensions: {self.encoder_dims}")
+        
+        n_block = len(hid_dims)
+        enc_layers = OrderedDict()
+        for ii in range(n_block):
+            enc_layers[f"block_{ii}"] = ConvBlock(input_channels=input_channels if ii == 0 else hid_dims[ii-1], 
+                                                 output_channels=hid_dims[ii], 
+                                                 kernel_size=kernel_size, 
+                                                 stride=stride, 
+                                                 padding=padding,
+                                                 act_slope=activation_slope)
+            
+        self.encoder = nn.Sequential(enc_layers)
+        
+        # Projection linéaire pour transformer de (channels, freq_dim) à (latent_dim)
+        self.freq_projection = nn.Sequential(
+            nn.Conv2d(hid_dims[-1], latent_dim, kernel_size=(self.final_freq_dim, 1), padding=0),
+            nn.ReLU()
+        )
+        
+        # Projection inverse pour le décodeur
+        self.freq_expansion = nn.Sequential(
+            nn.ConvTranspose2d(latent_dim, hid_dims[-1], kernel_size=(self.final_freq_dim, 1), padding=0),
+            nn.ReLU()
+        )
+        
+
+        if use_attention:
+            self.temporal_attention = TemporalAttention(self.latent_dim, attention_dim)
+        
+        dec_layers = OrderedDict()
+        rev_hid_dim = list(reversed(hid_dims))
+        
+        # Le décodeur a besoin de connaître les dimensions de sortie exactes
+        # à chaque étape pour reconstruire correctement
+        for jj in range(n_block):
+            if jj == n_block-1:
+                out_channels = input_channels
+                target_freq_dim = input_freq_dim  # Dimension fréquentielle d'origine
+            else:
+                out_channels = rev_hid_dim[jj+1]
+                target_freq_dim = self.encoder_dims[n_block - jj - 1]
+                
+            dec_layers[f"block_{jj}"] = DeconvBlock(
+                in_channels=rev_hid_dim[jj],
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                padding=padding,
+                stride=stride,
+                target_freq_dim=target_freq_dim,
+                use_activation=jj != (n_block-1),
+                act_slope=activation_slope
+            )
+
+        self.decoder = nn.Sequential(dec_layers)
+        self.use_attention = use_attention
+        self.method = sparse_method
+        self.sparsity = sparsity
+        
+        # Vérifier que la dernière étape du décodeur produit la bonne dimension fréquentielle
+        # print(f"Target output frequency dimension: {input_freq_dim}")
+    
+
+    def encode(self, x):
+        # Encodage - compression en fréquence
+        features = self.encoder(x)
+        # print(f"{features.shape=}")
+        
+        # Compression de la dimension fréquentielle en une seule dimension latente
+        # Input: (batch, channels, freq_dim, time)
+        # Output: (batch, latent_dim, 1, time)
+        z = self.freq_projection(features)
+        # print(f"Encoder {z.shape=}")
+
+        # Retirer la dimension fréquentielle qui est maintenant de taille 1
+        # Output: (batch, latent_dim, time)
+        z = z.squeeze(2).transpose(1,2)
+
+        # Apply sparsity constraint
+        if self.method == 'top-k':
+            k = int((1-self.sparsity) * self.latent_dim) 
+            _, indices = torch.topk(z, k, dim=-1) 
+            mask = torch.zeros_like(z,dtype=z.dtype)
+            mask.scatter_(2, indices, torch.ones_like(z, dtype=z.dtype))
+            z = z * mask
+        elif self.method == "archetypal":
+            pass
+        elif self.method == "jump_relu":
+            pass
+
+        
+        return z.transpose(1,2), features
+    
+    def decode(self, z, features=None):
+        # Ajouter une dimension fréquentielle de taille 1
+        # Input: (batch, latent_dim, time)
+        # Output: (batch, latent_dim, 1, time)
+        z_expanded = z.unsqueeze(2)
+        
+        # Développer la dimension fréquentielle pour le décodeur
+        # Output: (batch, channels, freq_dim, time)
+        z_freq = self.freq_expansion(z_expanded)
+        
+        # Décodage standard
+        x_hat = self.decoder(z_freq)
+        
+        return x_hat
+    
+    def forward(self, x):
+        # Sauvegarder la dimension d'entrée pour vérification
+        original_shape = x.shape
+        
+        # Encodage
+        z, features = self.encode(x)
+        
+        # Attention temporelle optionnelle
+        if self.use_attention:
+            z_att = self.temporal_attention(z.unsqueeze(2)).squeeze(2)
+            x_hat = self.decode(z_att)
+        else:
+            x_hat = self.decode(z)
+            z_att = None
+        
+        # Forcer la dimension de sortie
+        if x_hat.shape[2] != original_shape[2]:
+            x_hat = nn.functional.interpolate(
+                x_hat,
+                size=(original_shape[2], original_shape[3]),
+                mode='bilinear',
+                align_corners=False
+            )
+        
+        return x_hat, z, z_att, features
+
 
 class AttentiveAE(nn.Module):
     """

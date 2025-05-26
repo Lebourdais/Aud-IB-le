@@ -14,7 +14,7 @@ else:
   job_id = "".join(random.choices(string.ascii_letters + string.digits, k=8))
 
 common_parameters = {
-    'exp_dir': os.path.join(EXP_ROOT,'train/SAE/ae_debug'),
+    'exp_dir': os.path.join(EXP_ROOT,'train/SAE/sparse_classif'),
     'sample_rate': 22050,
     'optim': {
         'epochs': 200,
@@ -116,6 +116,117 @@ conf = {
         },
         "ae_ckpt_path": os.path.join(EXP_ROOT,"train/SAE/ae_debug/004_spec_autoencoder_urbasound8k_42", "best_model.pth")
     },
-  }
-  
+  },
+  "004":{
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 256,
+            "sae_dim": 1024,
+            "sparsity": 0.15,
+            "method": "top-k",
+            "freeze_autoencoder": True,
+            "decode_sae_out": True
+        },
+        "ae_ckpt_path": os.path.join(EXP_ROOT,"train/SAE/ae_debug/004_spec_autoencoder_urbasound8k_42", "best_model.pth")
+    },
+  },
+  "005":{
+    'optim': {
+        'loss_weights': (1.0, 0.5, 0.5) # BCE, MSE SAE, MSE Spectro
+    },
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 256,
+            "sae_dim": 1024,
+            "sparsity": 0.15,
+            "method": "top-k",
+            "freeze_autoencoder": False,
+            "decode_sae_out": True
+        },
+        "ae_ckpt_path": os.path.join(EXP_ROOT,"train/SAE/ae_debug/004_spec_autoencoder_urbasound8k_42", "best_model.pth")
+    },
+  },
+  "006":{
+    'optim': {
+        'loss_weights': (1.0, 0.5, 0.1) # BCE, MSE SAE, MSE Spectro
+    },
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 256,
+            "sae_dim": 1024,
+            "sparsity": 0.15,
+            "method": "top-k",
+            "freeze_autoencoder": False,
+            "decode_sae_out": True
+        },
+        "ae_ckpt_path": os.path.join(EXP_ROOT,"train/SAE/ae_debug/004_spec_autoencoder_urbasound8k_42", "best_model.pth")
+    },
+  },
+  "007":{
+    'optim': {
+        'loss_weights': (1.0, 0.5, .5) # BCE, MSE SAE, MSE Spectro
+    },
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 256,
+            "sae_dim": 1024,
+            "sparsity": 0.15,
+            "method": "top-k",
+            "freeze_autoencoder": False,
+            "decode_sae_out": True
+        },
+        "ae_ckpt_path": None
+    },
+  },
+  "008":{
+    'optim': {
+        'loss_weights': (1.0, 0.5, 0.1) # BCE, MSE SAE, MSE Spectro
+    },
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 256,
+            "sae_dim": 1024,
+            "sparsity": 0.15,
+            "method": "top-k",
+            "freeze_autoencoder": False,
+            "decode_sae_out": False
+        },
+        "ae_ckpt_path": os.path.join(EXP_ROOT,"train/SAE/ae_debug/004_spec_autoencoder_urbasound8k_42", "best_model.pth")
+    },
+  },
+  "009":{
+    'optim': {
+        'loss_weights': (1.0, 0.5, 0.5) # BCE, MSE SAE, MSE Spectro
+    },
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 256,
+            "sae_dim": 1024,
+            "sparsity": 0.15,
+            "method": "top-k",
+            "freeze_autoencoder": False,
+            "decode_sae_out": False
+        },
+        "ae_ckpt_path": os.path.join(EXP_ROOT,"train/SAE/ae_debug/004_spec_autoencoder_urbasound8k_42", "best_model.pth")
+    },
+  },
+  "010": {
+        'model': {
+            "model_type": "sparse_audio_ae",
+            "classifier": {
+                "n_classes": 10,
+                "hidden_dim": 1024,
+                "method": "top-k",
+                "freeze_autoencoder": True
+            },
+            "ae_ckpt_path": os.path.join(EXP_ROOT,"train/SAE/ae_debug/004_spec_autoencoder_urbasound8k_42", "best_model.pth"),
+            "ae_cfg": os.path.join(EXP_ROOT,"train/SAE/ae_debug/004_spec_autoencoder_urbasound8k_42", "config.json")
+        },
+  },
 }

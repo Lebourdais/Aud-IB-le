@@ -14,7 +14,7 @@ else:
   job_id = "".join(random.choices(string.ascii_letters + string.digits, k=8))
 
 common_parameters = {
-    'exp_dir': os.path.join(EXP_ROOT,'train/SAE/ae_debug'),
+    'exp_dir': os.path.join(EXP_ROOT,'train/SAE/sparse_audio_ae'),
     'sample_rate': 22050,
     'optim': {
         'epochs': 200,
@@ -41,7 +41,9 @@ common_parameters = {
         "hid_dims": [16, 32, 64, 128],
         "use_attention": False,
         "activation_slope": 0.2,
-        "attention_dim": 64
+        "attention_dim": 64,
+        "sparsity": None,
+        "sparse_method": None
     },
     "job_id": job_id,
     "cluster": cluster
@@ -67,5 +69,50 @@ conf = {
         "model": {
             "scale": "log",
         },
-    }
+    },
+    "005": {
+        "model": {
+            "scale": "log",
+        },
+    },
+    "006": {
+        "model": {
+            "scale": "log",
+            "sparsity": 0.8,
+            "sparse_method": "top-k",
+            "latent_dim": 1024,
+        },
+    },
+    "007": {
+        "model": {
+            "scale": "log",
+            "sparsity": 0.75,
+            "sparse_method": "top-k",
+            "latent_dim": 1024,
+        },
+    },
+    "008": {
+        "model": {
+            "scale": "log",
+            "sparsity": 0.85,
+            "sparse_method": "top-k",
+            "latent_dim": 1024,
+        },
+    },
+    "009": {
+        "model": {
+            "scale": "log",
+            "sparsity": 0.9,
+            "sparse_method": "top-k",
+            "latent_dim": 1024,
+        },
+    },
+    "010": {
+        "model": {
+            "scale": "log",
+            "sparsity": 0.95,
+            "sparse_method": "top-k",
+            "latent_dim": 1024,
+        },
+    },
 }
