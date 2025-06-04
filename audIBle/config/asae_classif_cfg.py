@@ -25,7 +25,7 @@ common_parameters = {
         'loss_weights': (1.0, 0.0) # BCE, MSE Spectro
     },
     'data': {
-      'root': '/lium/corpus/vrac/tmario/sed/urbansound8k/urbansound8k',
+      'root': '/lium/corpus/vrac/audio_tagging/urbansound8k/urbansound8k',
       'folds_train': [1,2,3,4,5,6,7,8],
       'folds_valid': [9],
     },
@@ -52,7 +52,7 @@ conf = {
             "method": "top-k",
             "freeze_autoencoder": True
         },
-        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/006_spec_autoencoder_urbasound8k_42"), 
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/006_spec_autoencoder_urbasound8k_42"), # 80% sparsity
     },
   },
   "002":{
@@ -63,7 +63,7 @@ conf = {
             "method": "top-k",
             "freeze_autoencoder": True
         },
-        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/007_spec_autoencoder_urbasound8k_42"), 
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/007_spec_autoencoder_urbasound8k_42"), # 75% sparsity
     },
   },
   "003":{
@@ -81,7 +81,7 @@ conf = {
             "method": "top-k",
             "freeze_autoencoder": True
         },
-        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/009_spec_autoencoder_urbasound8k_42"), 
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/009_spec_autoencoder_urbasound8k_42"), # 90% sparsity
     },
   },
   "004":{
@@ -117,7 +117,7 @@ conf = {
             "method": "top-k",
             "freeze_autoencoder": True
         },
-        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/007_spec_autoencoder_urbasound8k_42"), 
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/007_spec_autoencoder_urbasound8k_42"), # 75% sparsity
     },
   },
   "006":{
@@ -135,7 +135,7 @@ conf = {
             "method": "top-k",
             "freeze_autoencoder": True
         },
-        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/010_spec_autoencoder_urbasound8k_42"), 
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/010_spec_autoencoder_urbasound8k_42"), # 95% sparsity
     },
   },
   "007":{
@@ -153,7 +153,7 @@ conf = {
             "method": "top-k",
             "freeze_autoencoder": True
         },
-        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/008_spec_autoencoder_urbasound8k_42"), 
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/008_spec_autoencoder_urbasound8k_42"), # 85% sparsity
     },
   },
   "008":{
@@ -210,4 +210,180 @@ conf = {
         "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/009_spec_autoencoder_urbasound8k_42"), 
     },
   },
+  "011":{
+    'optim': {
+        'epochs': 200,
+        'batch_size': 64,  
+        'learning_rate': 0.001,
+        'patience_scheduler': 200,
+        'loss_weights': (1.0, 0.0) # CE, MSE Spectro
+        }, 
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True,
+            "use_seq_modeling": True,
+            "tcn_bn_dim": 512,
+            "tcn_hid_dim": 256,
+            "tcn_n_repeat": 2,
+            "tcn_n_block": 2,
+            "pool_type": None,
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/009_spec_autoencoder_urbasound8k_42"), 
+    },
+  },
+  "012":{
+    'optim': {
+        'epochs': 200,
+        'batch_size': 64,  
+        'learning_rate': 0.001,
+        'patience_scheduler': 200,
+        'loss_weights': (1.0, 0.0) # CE, MSE Spectro
+        }, 
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True,
+            "use_seq_modeling": False,
+            "pool_type": "avg",
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/009_spec_autoencoder_urbasound8k_42"), #90% sparsity 
+    },
+  },
+  "013":{
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True,
+            "use_seq_modeling": False,
+            "pool_type": "avg"
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/007_spec_autoencoder_urbasound8k_42"), # 75% sparsity
+    },
+  },
+  "014":{
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True,
+            "use_seq_modeling": False,
+            "pool_type": "att"
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/011_spec_autoencoder_urbasound8k_42"), # 50% sparsity
+    },
+  },
+  "015":{
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True,
+            "use_seq_modeling": False,
+            "pool_type": "att"
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/012_spec_autoencoder_urbasound8k_42"), # 0% sparsity
+    },
+  },
+  "016":{
+    'optim': {
+        'epochs': 50,
+        'batch_size': 64,  
+        'learning_rate': 0.0001,
+        'patience_scheduler': 200,
+        'loss_weights': (1.0, 0.0) # BCE, MSE Spectro
+    },
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/007_spec_autoencoder_urbasound8k_84"), # 75% sparsity
+    },
+  },
+  "017": {
+    'optim': {
+        'epochs': 50,
+        'batch_size': 64,  
+        'learning_rate': 0.0001,
+        'patience_scheduler': 200,
+        'loss_weights': (1.0, 0.0) # BCE, MSE Spectro
+        }, 
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/006_spec_autoencoder_urbasound8k_84"), # 80% sparsity
+    },
+  },
+  "018":{
+    'optim': {
+        'epochs': 50,
+        'batch_size': 64,  
+        'learning_rate': 0.0001,
+        'patience_scheduler': 200,
+        'loss_weights': (1.0, 0.0) # BCE, MSE Spectro
+        }, 
+    'model': {     
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/008_spec_autoencoder_urbasound8k_84"), # 85% sparsity
+    },
+  },
+  "019":{
+    'optim': {
+        'epochs': 50,
+        'batch_size': 64,  
+        'learning_rate': 0.0001,
+        'patience_scheduler': 200,
+        'loss_weights': (1.0, 0.0) # CE, MSE Spectro
+        }, 
+    'model': {
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True,
+            "use_seq_modeling": False,
+            "pool_type": "avg",
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/009_spec_autoencoder_urbasound8k_84"), #90% sparsity 
+    },
+  },
+  "020":{
+    'optim': {
+        'epochs': 50,
+        'batch_size': 64,  
+        'learning_rate': 0.0001,
+        'patience_scheduler': 200,
+        'loss_weights': (1.0, 0.0) # BCE, MSE Spectro
+        }, 
+    'model': {     
+        "classifier": {
+            "n_classes": 10,
+            "hidden_dim": 1024,
+            "method": "top-k",
+            "freeze_autoencoder": True
+        },
+        "asae_exp_path": os.path.join(EXP_ROOT,"train/SAE/sparse_audio_ae/010_spec_autoencoder_urbasound8k_84"), # 95% sparsity
+    },
+  },
+
 }

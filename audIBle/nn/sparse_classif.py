@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from audIBle.nn.sae import SAE
 from audIBle.nn.autoencoders import SpecAE
+from audIBle.nn.Tcn import TCN
 from audIBle.nn.utils import freeze_model
 
 class SparseClassifier(nn.Module):
@@ -149,6 +150,12 @@ class SparseAEClassifier(nn.Module):
                  autoencoder: nn.Module,
                  hidden_dim: int = 128,
                  freeze_autoencoder: bool = True,
+                 use_seq_modeling: bool = False,
+                 tcn_bn_dim: int = 128,
+                 tcn_hid_dim: int = 64,
+                 tcn_n_repeat: int = 1,
+                 tcn_n_block: int = 3,
+                 pool_type: str = "att",
                  **kwargs):
         """Classifier using a sparse audio autoencoder.
         This AE is trained with top-k over the latent space to reconstruct spectrograms.
@@ -165,9 +172,30 @@ class SparseAEClassifier(nn.Module):
         if freeze_autoencoder:
             autoencoder = freeze_model(autoencoder, eval_mode=True)
         self.audio_ae = autoencoder
+        self.use_seq_modeling = use_seq_modeling
+        if use_seq_modeling:
+            self.seq_model = TCN(in_chan=hidden_dim, 
+                                 n_src=1, 
+                                 out_chan=n_classes, 
+                                 n_blocks=tcn_n_block, 
+                                 n_repeats=tcn_n_repeat,
+                                 hid_chan=tcn_hid_dim, 
+                                 bn_chan=tcn_bn_dim)
+            self.classif_head = nn.Linear(n_classes,n_classes,bias=False)
 
-        self.classif_head = nn.Linear(hidden_dim,n_classes,bias=False)
-        self.pool = TemporalAttentionPooling(hidden_dim=hidden_dim)
+        if pool_type == "att":
+            self.pool = TemporalAttentionPooling(hidden_dim=hidden_dim)
+            self.classif_head = nn.Linear(hidden_dim,n_classes,bias=False)
+        elif pool_type == "avg":
+            self.classif_head = nn.Sequential(
+                nn.AdaptiveAvgPool1d(1),  # Temporal pooling
+                nn.Flatten(),
+                nn.Linear(hidden_dim, hidden_dim//4),
+                nn.ReLU(),
+                nn.Dropout(0.5),
+                nn.Linear(hidden_dim//4, n_classes)
+        )
+        self.pool_type = pool_type
 
     def forward(self, wav):
         """
@@ -190,15 +218,23 @@ class SparseAEClassifier(nn.Module):
             spec, hidden = self.audio_ae.encode(wav)
             spec_reconstruct = self.audio_ae.decode(hidden)
 
-        hidden = hidden.permute(0,2,1)    
-        # print(A.shape)
         # sparse autoencoder applied to the latent representation of the input
 
-        # temporal attentive pooling on the SAE latent representation before classifying
-        Z_pooled = self.pool(hidden)
-
-        # classify from the sparse latent representation
-        y_hat = self.classif_head(Z_pooled)
+        if self.use_seq_modeling:
+            hidden_seq = self.seq_model(hidden)
+            #hidden_seq = hidden_seq.transpose(1,2)
+            y_hat = self.classif_head(hidden_seq.mean(dim=-1))
+        
+        
+        else:
+            # temporal attentive pooling on the SAE latent representation before classifying    
+            if self.pool_type == "avg":
+                y_hat = self.classif_head(hidden)
+            else:
+                hidden = hidden.permute(0,2,1) #(batch,frame,hidden)
+                Z_pooled = self.pool(hidden)
+                # classify from the sparse latent representation
+                y_hat = self.classif_head(Z_pooled)
 
         return y_hat, spec_reconstruct, spec, hidden
     
@@ -285,6 +321,13 @@ class TemporalAttentionPooling(nn.Module):
         if return_att_weights:
             return context, attn_weights
         return context
+
+class AveragePooling(nn.Module):
+    def __init__(self,dim):
+        super().__init__()
+        self.dim = dim
+    def forward(self,x):
+        return x.mean(dim=self.dim)
 
 def test():
 

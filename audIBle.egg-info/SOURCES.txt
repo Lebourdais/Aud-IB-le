@@ -7,3 +7,6 @@ audIBle.egg-info/dependency_links.txt
 audIBle.egg-info/top_level.txt
 audIBle/data/__init__.py
 audIBle/data/datasets.py
+audIBle/data/music.py
+audIBle/data/sound.py
+audIBle/data/speech.py

@@ -24,7 +24,7 @@ common_parameters = {
         'patience_scheduler': 200,
     },
     'data': {
-      'root': '/lium/corpus/vrac/tmario/sed/urbansound8k/urbansound8k',
+      'root': '/lium/corpus/vrac/audio_tagging/urbansound8k/urbansound8k',
       'folds_train': [1,2,3,4,5,6,7,8],
       'folds_valid': [9],
     },
@@ -111,6 +111,22 @@ conf = {
         "model": {
             "scale": "log",
             "sparsity": 0.95,
+            "sparse_method": "top-k",
+            "latent_dim": 1024,
+        },
+    },
+    "011": {
+        "model": {
+            "scale": "log",
+            "sparsity": 0.5,
+            "sparse_method": "top-k",
+            "latent_dim": 1024,
+        },
+    },
+    "012": {
+        "model": {
+            "scale": "log",
+            "sparsity": 0.0,
             "sparse_method": "top-k",
             "latent_dim": 1024,
         },

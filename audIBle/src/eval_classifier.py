@@ -131,7 +131,7 @@ if __name__ == "__main__":
     parser.add_argument("--is_asae", action="store_true")
     args = parser.parse_args()
 
-    data_root = "/lium/corpus/vrac/tmario/sed/urbansound8k/urbansound8k"
+    data_root = "/lium/corpus/vrac/audio_tagging/urbansound8k/urbansound8k"
 
     #exp_name = f"{args.conf_id}_sparse_classif_urbasound8k_{args.seed}"
     #exp_name = f"{args.conf_id}_sparse_classif_urbasound8k_{args.seed}"
