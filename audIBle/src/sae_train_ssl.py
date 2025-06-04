@@ -143,17 +143,6 @@ def train(config, conf_id, seed):
                 # Forward pass
                 hidden, sae_latent, hidden_reconstruct = model(inputs)
 
-                # # Compute losses
-                # for hh, zz, hh_hat in zip(hidden, sae_latent, hidden_reconstruct):
-                #     loss_sae = l_reconstruct(hh_hat, hh)
-
-                #     # optimize L1 loss only in vanilla SAE
-                #     if is_vanilla_sae: 
-                #         loss_sparse = torch.norm(zz, p=1)
-                #         loss = lambda_l2 * loss_sae + lambda_l1 * loss_sparse
-                #     else:
-                #         loss = loss_sae
-
                 mse_layers = [0.0 for _ in range(len(layer_indices))]
                 l1_layers = [0.0 for _ in range(len(layer_indices))]
                 for l_idx, (hh, zz, hh_hat) in enumerate(zip(hidden, sae_latent, hidden_reconstruct)):
@@ -165,14 +154,8 @@ def train(config, conf_id, seed):
                         loss_sparse = torch.norm(zz, p=1)
                         #loss = lambda_l2 * loss_sae + lambda_l1 * loss_sparse
                         l1_layers[l_idx] += loss_sparse.item()
-
-            # log average loss for each layer across all the valid set
+            
             len_valid = len(valid_dataloader)
-            for l_idx in range(len(layer_indices)):
-                writer.add_scalar(f'valid/MSE_layer_{layer_indices[l_idx]}', mse_layers[l_idx]/len_valid, epoch)
-                if is_vanilla_sae:
-                    writer.add_scalar(f'valid/L1_layer_{layer_indices[l_idx]}', l1_layers[l_idx]/len_valid, epoch)
-
             # average MSE/L1 over all SAE
             val_mse_avg = torch.Tensor(mse_layers).mean()
             if is_vanilla_sae:
@@ -181,6 +164,15 @@ def train(config, conf_id, seed):
                 writer.add_scalar('valid/L1_sae', val_l1_avg/len_valid, epoch )
             else:
                 valid_loss = val_mse_avg
+
+            # log average loss for each layer across all the valid set
+
+            for l_idx in range(len(layer_indices)):
+                writer.add_scalar(f'valid/MSE_layer_{layer_indices[l_idx]}', mse_layers[l_idx]/len_valid, epoch)
+                if is_vanilla_sae:
+                    writer.add_scalar(f'valid/L1_layer_{layer_indices[l_idx]}', l1_layers[l_idx]/len_valid, epoch)
+
+
             
             writer.add_scalar('valid/loss', valid_loss/len_valid, epoch )
             writer.add_scalar('valid/MSE_sae', val_mse_avg/len_valid, epoch )
@@ -212,7 +204,7 @@ def cleanup():
     """Clean up the distributed environment."""
     dist.destroy_process_group()
 
-def trainddp(config, conf_id, seed, rank, world_size):
+def train(config, conf_id, seed, rank, world_size):
     # Setup distributed training
     setup(rank, world_size)
     
@@ -225,6 +217,7 @@ def trainddp(config, conf_id, seed, rank, world_size):
     sae_type = config["model"]["sae_method"]
     sae_dim = config["model"]["sae_dim"]
     sparsity = config["model"]["sparsity"]
+    layer_indices = config["model"]["layer_indices"] + [-1]
     exp_name = f"{conf_id}_{model_name}_{dataset_name}_SAE_{sae_type}_{sae_dim}_{int(sparsity*100)}_seed_{seed}"
 
     config["conf_id"] = conf_id
@@ -249,6 +242,7 @@ def trainddp(config, conf_id, seed, rank, world_size):
     valid_sampler = DistributedSampler(valid_set, num_replicas=world_size, rank=rank, shuffle=False)
     
     # Create data loaders with distributed samplers
+    # Set num_workers=0 to avoid multiprocessing issues with DDP
     dataloader = torch.utils.data.DataLoader(
         train_set, 
         batch_size=config["optim"]["batch_size"], 
@@ -260,7 +254,7 @@ def trainddp(config, conf_id, seed, rank, world_size):
         valid_set, 
         batch_size=config["optim"]["batch_size"], 
         sampler=valid_sampler,
-        num_workers=0,
+        num_workers=0, 
         pin_memory=True
     )
     
@@ -305,15 +299,29 @@ def trainddp(config, conf_id, seed, rank, world_size):
             hidden, sae_latent, hidden_reconstruct = model(inputs)
 
             # Compute losses
-            for hh, zz, hh_hat in zip(hidden, sae_latent, hidden_reconstruct):
+            mse_layers = []
+            l1_layers = []
+            for l_idx, (hh, zz, hh_hat) in enumerate(zip(hidden, sae_latent, hidden_reconstruct)):
                 loss_sae = l_reconstruct(hh_hat, hh)
-
+                mse_layers.append(loss_sae)
                 # optimize L1 loss only in vanilla SAE
                 if is_vanilla_sae: 
                     loss_sparse = torch.norm(zz, p=1)
-                    loss = lambda_l2 * loss_sae + lambda_l1 * loss_sparse
+                    l1_layers.append(loss_sparse)
+                    if rank == 0:
+                        writer.add_scalar(f'train/L1_layer_{layer_indices[l_idx]}', loss_sparse.item(), epoch * len(dataloader) + i)
                 else:
                     loss = loss_sae
+
+                if rank == 0:
+                    writer.add_scalar(f'train/MSE_layer_{layer_indices[l_idx]}', loss_sae.item(), epoch * len(dataloader) + i)
+
+            mse_loss_avg = torch.stack(mse_layers).mean(dim=0)
+            if is_vanilla_sae:
+                sparse_loss_avg = torch.stack(l1_layers).mean(dim=0)
+                loss = lambda_l2 * mse_loss_avg + lambda_l1 * sparse_loss_avg
+            else:
+                loss = mse_loss_avg
 
             # Backward pass and optimization
             optimizer.zero_grad()
@@ -326,9 +334,9 @@ def trainddp(config, conf_id, seed, rank, world_size):
             if rank == 0:
                 writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], epoch * len(dataloader) + i)
                 writer.add_scalar('train/loss', loss.item(), epoch * len(dataloader) + i)
-                writer.add_scalar('train/MSE_sae', loss_sae.item(), epoch * len(dataloader) + i)
+                writer.add_scalar('train/Avg_MSE_sae', mse_loss_avg.item(), epoch * len(dataloader) + i)
                 if is_vanilla_sae:
-                    writer.add_scalar('train/L1_sae', loss_sparse.item(), epoch * len(dataloader) + i)
+                    writer.add_scalar('train/L1_sae', sparse_loss_avg.item(), epoch * len(dataloader) + i)
         
         # Average loss across all processes
         running_loss_tensor = torch.tensor(running_loss / len(dataloader), device=device)
@@ -342,8 +350,8 @@ def trainddp(config, conf_id, seed, rank, world_size):
         model.eval()
         with torch.no_grad():
             valid_loss = 0.0
-            valid_loss_sae = 0.0
-            valid_loss_sparse = 0.0
+            mse_layers_total = [0.0 for _ in range(len(layer_indices))]
+            l1_layers_total = [0.0 for _ in range(len(layer_indices))]
             
             for i, (inputs, labels) in enumerate(valid_dataloader):
                 inputs = inputs.to(device, non_blocking=True)
@@ -352,53 +360,68 @@ def trainddp(config, conf_id, seed, rank, world_size):
                 # Forward pass
                 hidden, sae_latent, hidden_reconstruct = model(inputs)
 
-                # Compute losses
-                for hh, zz, hh_hat in zip(hidden, sae_latent, hidden_reconstruct):
+                mse_layers = [0.0 for _ in range(len(layer_indices))]
+                l1_layers = [0.0 for _ in range(len(layer_indices))]
+                for l_idx, (hh, zz, hh_hat) in enumerate(zip(hidden, sae_latent, hidden_reconstruct)):
                     loss_sae = l_reconstruct(hh_hat, hh)
+                    mse_layers[l_idx] += loss_sae.item()
+                    mse_layers_total[l_idx] += loss_sae.item()
 
                     # optimize L1 loss only in vanilla SAE
                     if is_vanilla_sae: 
                         loss_sparse = torch.norm(zz, p=1)
-                        loss = lambda_l2 * loss_sae + lambda_l1 * loss_sparse
-                    else:
-                        loss = loss_sae
+                        l1_layers[l_idx] += loss_sparse.item()
+                        l1_layers_total[l_idx] += loss_sparse.item()
 
-
-                valid_loss += loss.item()
-                valid_loss_sae += loss_sae.item()
-
-            # Average validation losses across all processes
+            # Convert to tensors and reduce across all processes
             len_valid = len(valid_dataloader)
-            valid_loss_tensor = torch.tensor(valid_loss / len_valid, device=device)
-            valid_loss_sae_tensor = torch.tensor(valid_loss_sae / len_valid, device=device)
             
-            dist.all_reduce(valid_loss_tensor, op=dist.ReduceOp.SUM)
-            dist.all_reduce(valid_loss_sae_tensor, op=dist.ReduceOp.SUM)
-            
-            avg_valid_loss = valid_loss_tensor.item() / world_size
-            avg_valid_loss_sae = valid_loss_sae_tensor.item() / world_size
+            # Aggregate layer losses across all processes
+            mse_layers_tensor = torch.tensor(mse_layers_total, device=device)
+            dist.all_reduce(mse_layers_tensor, op=dist.ReduceOp.SUM)
+            mse_layers_avg = mse_layers_tensor / world_size
             
             if is_vanilla_sae:
-                valid_loss_sparse_tensor = torch.tensor(valid_loss_sparse / len_valid, device=device)
-                dist.all_reduce(valid_loss_sparse_tensor, op=dist.ReduceOp.SUM)
-                avg_valid_loss_sparse = valid_loss_sparse_tensor.item() / world_size
+                l1_layers_tensor = torch.tensor(l1_layers_total, device=device)
+                dist.all_reduce(l1_layers_tensor, op=dist.ReduceOp.SUM)
+                l1_layers_avg = l1_layers_tensor / world_size
+
+            # Calculate average losses
+            val_mse_avg = mse_layers_avg.mean()
+            if is_vanilla_sae:
+                val_l1_avg = l1_layers_avg.mean()
+                valid_loss = lambda_l2 * val_mse_avg + lambda_l1 * val_l1_avg
+            else:
+                valid_loss = val_mse_avg
+
+            # All reduce the total validation loss
+            valid_loss_tensor = torch.tensor(valid_loss, device=device)
+            dist.all_reduce(valid_loss_tensor, op=dist.ReduceOp.SUM)
+            avg_valid_loss = valid_loss_tensor.item() / world_size
 
             scheduler.step()
             
             # Only log and save on rank 0
             if rank == 0:
-                writer.add_scalar('valid/loss', avg_valid_loss, epoch)
-                writer.add_scalar('valid/MSE_sae', avg_valid_loss_sae, epoch)
+                # Log average loss for each layer
+                for l_idx in range(len(layer_indices)):
+                    writer.add_scalar(f'valid/MSE_layer_{layer_indices[l_idx]}', mse_layers_avg[l_idx]/len_valid, epoch)
+                    if is_vanilla_sae:
+                        writer.add_scalar(f'valid/L1_layer_{layer_indices[l_idx]}', l1_layers_avg[l_idx]/len_valid, epoch)
+
+                writer.add_scalar('valid/loss', avg_valid_loss/len_valid, epoch)
+                writer.add_scalar('valid/MSE_sae', val_mse_avg/len_valid, epoch)
                 if is_vanilla_sae:
-                    writer.add_scalar('valid/L1_sae', avg_valid_loss_sparse, epoch)
-                print(f"Validation Loss: {avg_valid_loss:.4f}")
+                    writer.add_scalar('valid/L1_sae', val_l1_avg/len_valid, epoch)
+                    
+                print(f"Validation Loss: {avg_valid_loss / len_valid:.4f}")
 
                 # Save the model if the validation loss is the best so far
                 if avg_valid_loss <= best_loss:
                     best_loss = avg_valid_loss
                     # Save the model without DDP wrapper
                     torch.save(model.module.state_dict(), os.path.join(exp_dir, 'best_model.pth'))
-                    print(f"Model saved at epoch {epoch+1} with validation loss: {avg_valid_loss:.4f}")
+                    print(f"Model saved at epoch {epoch+1} with validation loss: {avg_valid_loss / len_valid:.4f}")
 
     if rank == 0:
         writer.close()
@@ -407,7 +430,7 @@ def trainddp(config, conf_id, seed, rank, world_size):
 
 def main_worker(rank, world_size, config, conf_id, seed):
     """Main worker function for each process."""
-    trainddp(config, conf_id, seed, rank, world_size)
+    train(config, conf_id, seed, rank, world_size)
 
 def main(config, conf_id, seed):
     """Main function to spawn multiple processes."""
@@ -421,6 +444,7 @@ def main(config, conf_id, seed):
         nprocs=world_size,
         join=True
     )
+
 
 if __name__ == "__main__":
 
