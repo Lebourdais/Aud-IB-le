@@ -14,11 +14,11 @@ else:
   job_id = "".join(random.choices(string.ascii_letters + string.digits, k=8))
 
 common_parameters = {
-    'exp_dir': os.path.join(EXP_ROOT,'train/SAE/sparse_classif'),
+    'exp_dir': os.path.join(EXP_ROOT,'train/SAE/ssl'),
     'sample_rate': 16000,
     'optim': {
         'epochs': 200,
-        'batch_size': 64,  
+        'batch_size': 16,  
         'learning_rate': 0.001,
         'patience_early_stop': 15,
         'patience_scheduler': 200,
