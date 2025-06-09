@@ -1,5 +1,7 @@
 import torchaudio
 import torch
+import librosa
+import pandas as pd # Only for dataset testing
 
 def sig_generator(length,samplerate,batch_size=8):
     t = torch.linspace(0.0,length,steps=int(samplerate*length))
@@ -26,8 +28,25 @@ def sig_generator(length,samplerate,batch_size=8):
                 sig_glob += sig
         normed_sig = (sig_glob - sig_glob.min())/(sig_glob.max()-sig_glob.min())*2 -1
         out.append(normed_sig)
+        metadata[i]['title'] = f"[{', '.join([f'{x:.2f}' for x in metadata[i]['freqs']])}]"
     return torch.stack(out),metadata
-    
+
+def load_sample_ESC50_dataset(path,batchsize=8):
+    """
+    load a part of ESC-50 for testing
+    """
+    data = pd.read_csv(f"{path}/meta/esc50.csv")
+    batch = data.sample(batchsize,ignore_index=True)
+    t = torch.linspace(0,5.0,steps=16000*5)
+    rs = torchaudio.transforms.Resample(orig_freq=44100,new_freq=16000)
+    metadata = {i:{'t':t}for i in range(batchsize)}
+    full_batch = []
+    for ii,r in batch.iterrows():
+        audio,sr = torchaudio.load(f"{path}/audio/{r['filename']}")
+        rs_audio = rs(audio).squeeze()
+        full_batch.append(rs_audio)
+        metadata[ii]['title'] = f"{r['filename']} : {r['category']}"
+    return torch.stack(full_batch),metadata
         
 
 def loudness(signal,samplerate):
@@ -68,7 +87,7 @@ def energy(signal,samplerate,winsize = 0.05,stepsize=0.01,win_func=torch.ones):
 
 def dynamic_range(signal,samplerate):
     e = energy(signal=signal,samplerate=samplerate)
-    return 20 * torch.log(e.max(dim=1).values/e.min(dim=1).values)
+    return 20 * torch.log10(e.max(dim=1).values/e.min(dim=1).values)
 
 def spectral_rms(signal,samplerate,freqrange = (0,8000)):
     freq_rep,freq_bins = fft(signal,samplerate)
@@ -79,78 +98,41 @@ def spectral_rms(signal,samplerate,freqrange = (0,8000)):
         rms = torch.sqrt((batch.pow(2)).sum()/batch.shape[0])
         out.append(rms)
     return torch.tensor(out)
-def spectrogram(signal,samplerate,n_fft=128,win_len = 128):
+
+def spectral_energy_per_band(signal,samplerate,band=(20,150)):
+    """
+    [20Hz, 150Hz], [150Hz, 800Hz], [800Hz, 4kHz], and [4kHz, 20kHz]
+    """
+    freq_rep,freq_bins = spectrogram(signal,samplerate,power=1.0) # energy not power
+    freq_bins = torch.tensor(freq_bins)
+    freq_mask = ((band[0] < freq_bins) & (freq_bins < band[1])).unsqueeze(0).repeat(freq_rep.shape[0],1)
+    energy = freq_rep[freq_mask].abs().pow(2).sum()
+    return energy
+
+def spectrogram(signal,samplerate,n_fft=400,db=False,power = 2.0):
     n_bins = n_fft
-    spec_func = torchaudio.transforms.Spectrogram(n_fft=n_bins,win_length=win_len)
+    spec_func = torchaudio.transforms.Spectrogram(n_fft=n_bins,power=power)
     spec = spec_func(signal)
     freq_bins = [(i * samplerate/n_bins)for i in range(spec.shape[1])]
+    if db:
+        spec = 10 * torch.log10(spec)
     return spec,freq_bins
-def HF_content_descriptor(signal,samplerate):
+
+def hF_content_descriptor(signal,samplerate):
     spec,freqs = spectrogram(signal,samplerate)
-    weights = torch.arange(freqs.shape[0])
-    weighted_spec = spec*weights
+    weights = torch.arange(len(freqs))
+    print(weights.shape,spec.shape)
+    weighted_spec = spec*weights.unsqueeze(1)
     hfcd = weighted_spec.sum(1)
-    print(hfcd.shape)
     return hfcd
 # loudness OK
 # dynamic range OK
 # spectral rms OK
-# HF content descriptor
-# spectral energy per band
-#dissonance
+# HF content descriptor OK
+# spectral energy per band OK
+#dissonance OK
 #pitch salience
 #bpm
 #danceability
 #key
 #Chord change rate
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-    fig = plt.figure(layout="constrained")
-    sr = 16000
-    length = 3.0
-    step_length =0.01
-    win_length = 0.05
-    sig_displayed = 0
-    sig,metadata = sig_generator(3.0,sr)
-    gs0 = fig.add_gridspec(4,1)
-    ax_sig = fig.add_subplot(gs0[0])
-    ax_sig.set_title(f"Base sig {sig_displayed}")
-    ax_sig.plot(metadata[sig_displayed]['t'],sig[sig_displayed])
-    gs1 = gs0[1].subgridspec(1,2)
-    ax_spec1 = fig.add_subplot(gs1[0])
-    ax_spec2 = fig.add_subplot(gs1[1])
-
-    spec,spec_bins = spectrogram(sig,sr,n_fft=128,win_len=50)
-    ax_spec1.imshow(spec[sig_displayed])
-    ax_spec1.set_yticklabels(spec_bins)
-    ax_spec1.set_title("Spectrogram")
-    e = energy(sig,samplerate=sr,win_func=torch.signal.windows.hann)
-    e2 = energy(sig,samplerate=sr,win_func=torch.ones)
-    gs2 = gs0[2].subgridspec(1,2)
-    ax_e1 = fig.add_subplot(gs2[0])
-    ax_e2 = fig.add_subplot(gs2[1])
-    
-    ax_e1.plot(e[sig_displayed])
-    ax_e1.set_title("energy w hann")
-    ax_e2.plot(e2[sig_displayed])
-    ax_e2.set_title("energy w/o hann")
-    print(f"{e.shape=}")
-    print(f"{dynamic_range(sig,sr)=}")
-    gs3 = gs0[3].subgridspec(1,2)
-    ax_fft = fig.add_subplot(gs3[0])
-    ax_rms = fig.add_subplot(gs3[1])
-    freqs_all = fft(sig,sr)
-    freq_bins = freqs_all[1]
-    freq_rep = freqs_all[0][sig_displayed]
-    ax_fft.plot(freq_bins,freq_rep)
-    ax_fft.set_xlim(0,50)
-    ax_fft.set_title("Fourier transform")
-    range_rms = (15,50)
-    rms = spectral_rms(sig,sr,range_rms)
-    ax_rms.plot(freq_bins,freq_rep)
-    ax_rms.axhline(rms[sig_displayed],c="k",linestyle="--")
-    ax_rms.set_xlim(0,50)
-    ax_rms.set_title(f"RMS : [{range_rms[0]} - {range_rms[1]}] = {rms[sig_displayed]:.2f}")
-    print("RMS = ",rms)
-
-    plt.show()
