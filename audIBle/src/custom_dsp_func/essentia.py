@@ -67,7 +67,7 @@ def consonance(f1,f2):
     cbw = min(cbwf1, cbwf2 )
     return plompLevelt(abs(f2-f1)/cbw)
 
-def calcDissonance(spec,freqs):
+def dissonance(spec,freqs):
     """
     considered loudness as energy 
     """

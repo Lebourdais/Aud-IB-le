@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from essentia import spec_hz2bark,calcDissonance
+from essentia import spec_hz2bark,dissonance
 from base_functions import *
 from matplotlib.widgets import Button, Slider
 fig = plt.figure(layout="constrained")
@@ -51,7 +51,7 @@ spec_band3 = spectral_energy_per_band(sig,sr,band=(4000,20000))
 print(f"Spectral energy for 4kHz-20kHz : {spec_band3}")
 
 bark = spec_hz2bark(spec,spec_bins)
-diss = calcDissonance(spec,spec_bins)
+diss = dissonance(spec,spec_bins)
 
 
 ax_sig.set_title(f"Base sig {sig_displayed} : {metadata[sig_displayed]['title']}")

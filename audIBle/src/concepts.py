@@ -1,8 +1,9 @@
 import torch
 import torchaudio
 from torchaudio.transforms import MFCC
-import librosa
-
+import librosa # python -m pip install librosa
+from custom_dsp_func.base_functions import loudness,spectral_energy_per_band,spectral_rms,hF_content_descriptor,dynamic_range
+from custom_dsp_func.essentia import dissonance
 class Concept():
     """
     Base class for a Concept that extract a given concept from a signal
@@ -67,7 +68,6 @@ class TemporalCentroid_Concept(Concept):
     """
     Compute the Temporal centroid
     Return one vector of shape (Batch):
-    WIP
     """
     def __init__(self,samplerate=16000):
         super(TemporalCentroid_Concept,self).__init__(needStatistics=True)
@@ -91,7 +91,79 @@ class TemporalCentroid_Concept(Concept):
             out_res.append(out)
 
         return torch.nan_to_num(torch.stack(out_res),nan=1e-7)
+
+class Loudness_Concept(Concept):
+    """
+    Compute the loudness using torchaudio
+    Return one vector of shape (Batch):
+    """
+    def __init__(self,samplerate):
+        super(Loudness_Concept,self).__init__(needStatistics=False)
+        self.samplerate = samplerate
     
+    def process(self,X):
+        X = loudness(X,self.samplerate)
+        return X
+    
+class DynamicRange_Concept(Concept):
+    """
+    Compute the dynamic range using torchaudio
+    Return one vector of shape (Batch):
+    """
+    def __init__(self,samplerate):
+        super(DynamicRange_Concept,self).__init__(needStatistics=False)
+        self.samplerate = samplerate
+    
+    def process(self,X):
+        X = dynamic_range(X,self.samplerate)
+        return X
+    
+class SpectralRMS_Concept(Concept):
+    """
+    Compute the spectral RMS using torchaudio
+    Return one vector of shape (Batch):
+    """
+    def __init__(self,samplerate):
+        super(SpectralRMS_Concept,self).__init__(needStatistics=False)
+        self.samplerate = samplerate
+    
+    def process(self,X):
+        X = dynamic_range(X,self.samplerate)
+        return X
+
+class HFContentDescriptor_Concept(Concept):
+    """
+    Compute the High frequency content descriptor using torchaudio
+    Return two vectors (mean std) of shape (Batch):
+    """
+    def __init__(self,samplerate):
+        super(HFContentDescriptor_Concept,self).__init__(needStatistics=True)
+        self.samplerate = samplerate
+    
+    def process(self,X):
+        X = hF_content_descriptor(X,self.samplerate)
+        return X
+
+class SpectralEnergyPerBand_Concept(Concept):
+    """
+    Compute the spectral energy per frequency band using torchaudio
+    
+    Return one vector of shape (Batch):
+    """
+    def __init__(self,samplerate,freqband):
+        super(SpectralEnergyPerBand_Concept,self).__init__(needStatistics=False)
+        self.samplerate = samplerate
+        self.freqband = freqband
+    def process(self,X):
+        X = spectral_energy_per_band(X,self.samplerate,band=self.freqband)
+        return X
+    
+
+#loudness
+#dynamic range
+#spectral rms
+# HF content descriptor OK
+# spectral energy per band OK
 if __name__ == '__main__':
     #sample_wav_url = "https://pytorch-tutorial-assets.s3.amazonaws.com/steam-train-whistle-daniel_simon.wav"
     X = torchaudio.load(torchaudio.utils.download_asset("tutorial-assets/steam-train-whistle-daniel_simon.wav"))[0]
