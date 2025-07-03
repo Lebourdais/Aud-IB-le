@@ -204,7 +204,7 @@ def cleanup():
     """Clean up the distributed environment."""
     dist.destroy_process_group()
 
-def train(config, conf_id, seed, rank, world_size):
+def train_ddp(config, conf_id, seed, rank, world_size):
     # Setup distributed training
     setup(rank, world_size)
     
@@ -430,7 +430,7 @@ def train(config, conf_id, seed, rank, world_size):
 
 def main_worker(rank, world_size, config, conf_id, seed):
     """Main worker function for each process."""
-    train(config, conf_id, seed, rank, world_size)
+    train_ddp(config, conf_id, seed, rank, world_size)
 
 def main(config, conf_id, seed):
     """Main function to spawn multiple processes."""
