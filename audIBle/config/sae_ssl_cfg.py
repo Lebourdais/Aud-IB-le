@@ -14,6 +14,7 @@ else:
   job_id = "".join(random.choices(string.ascii_letters + string.digits, k=8))
 
 common_parameters = {
+    #'exp_dir': os.path.join(EXP_ROOT,'train/SAE/ssl'),
     'exp_dir': os.path.join(EXP_ROOT,'train/SAE/ssl'),
     'sample_rate': 16000,
     'optim': {

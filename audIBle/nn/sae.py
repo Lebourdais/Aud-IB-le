@@ -28,7 +28,7 @@ class SAE(nn.Module):
         # Apply sparsity constraint
         if self.sparsity > 0:
             if self.method == 'top-k':
-                k = int(self.sparsity * self.sae_dim) 
+                k = int((1-self.sparsity) * self.sae_dim) 
                 _, indices = torch.topk(z, k, dim=-1) 
                 mask = torch.zeros_like(z,dtype=z.dtype)
                 mask.scatter_(2, indices, torch.ones_like(z, dtype=z.dtype))
@@ -77,6 +77,9 @@ class SaeSslWrapper(nn.Module):
         else:
             raise Exception(f"!!! No audio encoder can be found with {encoder_type=} !!!")
 
+
+        # check sparsity parameter
+        print(f"!!! Sparsity = {sparsity}")
         # One SAE for each selected hidden state
         n_sae = len(layer_indices) + 1 # include the last hidden state
         sae_set = []

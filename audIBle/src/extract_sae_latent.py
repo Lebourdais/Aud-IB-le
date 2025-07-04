@@ -75,11 +75,11 @@ def extract(model, dataloader, device, out_file_path):
             hidden, latent, hidden_hat = model(audio.to(device))
             n_rep = len(hidden)
             
-            mse_avg = 0.0
-            for (hh, hh_hat) in zip(hidden, hidden_hat):
-                mse_avg+= mse(hh_hat,hh).item()
+            mse_layer = np.zeros((n_rep,))
+            for jj, (hh, hh_hat) in enumerate(zip(hidden, hidden_hat)):
+                mse_layer[jj] = mse(hh_hat,hh).item()
             
-            all_mse.append(mse_avg/n_rep)
+            all_mse.append(mse_layer)
             all_hidden.append([h.detach().cpu().numpy() for h in hidden])
             #all_hidden_hat.append([h.detach().cpu().numpy() for h in hidden_hat])
             all_latent.append([l.detach().cpu().numpy() for l in latent])
@@ -102,44 +102,52 @@ def extract(model, dataloader, device, out_file_path):
 
 
 if __name__ == "__main__":
-    from audIBle.config.sae_ssl_cfg import conf, common_parameters
-    from audIBle.config.utils import merge_configs
     import argparse
-
     parser = argparse.ArgumentParser()
-    parser.add_argument('--conf_id', type=str, help='Configuration ID for experiment setup')
+    #parser.add_argument('--conf_ids', type=list, help='List of config ID for experiment setup. The extraction will be done for each of them.')
+    parser.add_argument('--conf_ids', nargs='+' ,help='List of config ID for experiment setup. The extraction will be done for each of them.', required=True)
     parser.add_argument('--seed', type=int, default=42, help="Random seed for experiment reproductibility")
     parser.add_argument("--enc_type",type=str,help="Name of the audio encoder")
     parser.add_argument("--sae_method",type=str,help="Method to obtain asparse latent space")
     parser.add_argument("--sae_dim",type=int,help="Dimension of the sparse latent space")
-    parser.add_argument("--sparsity",type=float,help="Sparsity ratio in the SAE latent representation")
+    parser.add_argument("--sparsity",nargs='+',help="Sparsity ratio in the SAE latent representation")
     parser.add_argument("--dataset_name",type=str,help="Sparsity ratio in the SAE latent representation")
+    parser.add_argument("--test_set", action="store_true")
 
     args = parser.parse_args()
 
-    exp_conf = conf[args.conf_id]
-    config = merge_configs(common_parameters, exp_conf)
-    exp_root = os.path.join(os.environ["EXP_ROOT"],"train/SAE/ssl/")
-    exp_name = f"{args.conf_id}_{args.enc_type}_{args.dataset_name}_SAE_{args.sae_method}_{args.sae_dim}_{int(args.sparsity*100)}_seed_{args.seed}"
-    exp_path = os.path.join(exp_root, exp_name)
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    
-    with open(os.path.join(exp_path,"config.json"), "r") as fh:
-        cfg = json.load(fh)
+    for conf_id, sparsity in zip(args.conf_ids, args.sparsity):
+        print(f"Extracting representations for config {conf_id}")
+        exp_root = os.path.join(os.environ["EXP_ROOT"],"train/SAE/ssl/")
+        exp_name = f"{conf_id}_{args.enc_type}_{args.dataset_name}_SAE_{args.sae_method}_{args.sae_dim}_{int(sparsity)}_seed_{args.seed}"
+        exp_path = os.path.join(exp_root, exp_name)
 
-    model = SaeSslWrapper(**cfg["model"])
-    ckpt = torch.load(os.path.join(exp_path,"best_model.pth"),weights_only=True, map_location=device)
-    model.load_state_dict(ckpt)
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        with open(os.path.join(exp_path,"config.json"), "r") as fh:
+            cfg = json.load(fh)
 
-    cfg["data"]["valid"]["return_path"] = True
-    dataset = select_dataset(dataset_name=cfg["data"]["dataset_name"], **cfg["data"]["valid"])
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4)
-    layer_indices = cfg["model"]["layer_indices"] + [-1]
-    suff = '_'.join(str(ll) for ll in layer_indices)
-    out_file_path = os.path.join(exp_path,f'extract_rep_{suff}.h5')
-    print(f"Representations are saved in : {out_file_path}")
-    extract(model, dataloader, device, out_file_path)
+        import pprint
+        pprint.pprint(cfg["model"])
+        model = SaeSslWrapper(**cfg["model"])
+        ckpt = torch.load(os.path.join(exp_path,"best_model.pth"),weights_only=True, map_location=device)
+        model.load_state_dict(ckpt)
+
+        if not args.test_set:
+            cfg["data"]["valid"]["return_path"] = True
+            dataset = select_dataset(dataset_name=cfg["data"]["dataset_name"], **cfg["data"]["valid"])
+        else:
+            cfg_test = {"root":"/lium/corpus/vrac/audio_tagging/", "part":"test", "return_path": True}
+            dataset = select_dataset(dataset_name="esc50", **cfg_test)
+
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4)
+        layer_indices = cfg["model"]["layer_indices"] + [-1]
+        suff = '_'.join(str(ll) for ll in layer_indices)
+        name = f'extract_rep_{suff}.h5' if not args.test_set else f'extract_rep_test_{suff}.h5'
+        out_file_path = os.path.join(exp_path,name)
+        print(f"Representations are saved in : {out_file_path}")
+        extract(model, dataloader, device, out_file_path)
 
 
 
