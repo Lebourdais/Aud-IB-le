@@ -1,9 +1,23 @@
 import torch
 import torchaudio
+import h5py
+import tqdm
+from glob import glob
 from torchaudio.transforms import MFCC
 import librosa # python -m pip install librosa
-from custom_dsp_func.base_functions import loudness,spectral_energy_per_band,spectral_rms,hF_content_descriptor,dynamic_range
-from custom_dsp_func.essentia import dissonance
+import custom_dsp_func
+from custom_dsp_func.base_functions import loudness,spectral_energy_per_band,spectral_rms,hF_content_descriptor,dynamic_range,multi_level_acf
+#from custom_dsp_func.essentia import dissonance
+def sanitize_name(str_raw):
+    
+    str_cast = str(str_raw).lower()
+    source=","
+    target="-"
+    remove="./()[]_"
+    table = str.maketrans(source,target,remove)
+    str_clean = str_cast.translate(table)
+    
+    return str_clean
 class Concept():
     """
     Base class for a Concept that extract a given concept from a signal
@@ -12,7 +26,32 @@ class Concept():
         self.needStatistics = needStatistics
     def process(self,X):
         pass
-
+    def get_name(self):
+        return sanitize_name(type(self).__name__)
+    def extract(self,input_folder,h5_file):
+        """
+        Extract the concept in the right hdf5 group.
+        """
+        concept_name = self.get_name()
+        features = []
+        flist = glob(f"{input_folder}/*.wav")
+        for file in tqdm.tqdm(flist,desc=concept_name):
+            audio,sr = torchaudio.load(file)
+            features.append(self.__call__(audio))
+        with h5py.File(h5_file,'w') as infile:
+            
+            dst = infile.require_group(concept_name)
+            if self.needStatistics:
+                mean,std = zip(*features)
+                dst.create_dataset("value",dtype="f")
+                dst.create_dataset("mean",data=mean)
+                dst.create_dataset("std",data=std)
+            else:
+                
+                dst.create_dataset("value",data=features)
+                dst.create_dataset("mean",dtype="f")
+                dst.create_dataset("std",dtype="f")
+        return h5_file
     def __call__(self, X):
         """Treat signal X"""
         out = self.process(X)
@@ -32,7 +71,8 @@ class MFCC_Concept(Concept):
         super(MFCC_Concept, self).__init__(needStatistics=True)
         self.n_mfcc = n_mfcc
         self.transform = MFCC(sample_rate=samplerate,n_mfcc=n_mfcc)
-
+    def get_name(self):
+        return sanitize_name(f"{super().get_name()}_{self.n_mfcc}")
     def process(self,X):
         return self.transform(X)
     
@@ -91,7 +131,32 @@ class TemporalCentroid_Concept(Concept):
             out_res.append(out)
 
         return torch.nan_to_num(torch.stack(out_res),nan=1e-7)
+    
+class Spectral_RollOff_Concept(Concept):
+    """
+    Compute the spectral roll-off using librosa
+    Return two vectors of shape (Batch) for mean and std
+    """
+    def __init__(self,samplerate,rolloff_percentage = 0.9):
+        super(Spectral_RollOff_Concept,self).__init__(needStatistics=True)
+        self.samplerate = samplerate
+        self.rolloff_percentage = rolloff_percentage
+    def get_name(self):
+        return sanitize_name(f"{super().get_name()}_{self.rolloff_percentage}")
+    def process(self, X):
+        return torch.from_numpy(librosa.feature.spectral_rolloff(y=X.numpy(),sr=self.samplerate,roll_percent = self.rolloff_percentage))
 
+class Spectral_Centroid_Concept(Concept):
+    """
+    Compute the spectral centroid using librosa
+    Return two vectors of shape (Batch) for mean and std
+    """
+    def __init__(self,samplerate):
+        super(Spectral_Centroid_Concept,self).__init__(needStatistics=True)
+        self.samplerate = samplerate
+    def process(self, X):
+        return torch.from_numpy(librosa.feature.spectral_centroid(y=X.numpy(),sr=self.samplerate))
+    
 class Loudness_Concept(Concept):
     """
     Compute the loudness using torchaudio
@@ -104,7 +169,17 @@ class Loudness_Concept(Concept):
     def process(self,X):
         X = loudness(X,self.samplerate)
         return X
-    
+
+class MultiLevel_Acf_Concept(Concept):
+    def __init__(self,samplerate,space=(0.1,1,100)):
+        super(MultiLevel_Acf_Concept,self).__init__(needStatistics=True)
+        self.samplerate = samplerate
+        self.space = space
+    def get_name(self):
+        return sanitize_name(f"{super().get_name()}_{self.space}")
+    def process(self,X):
+        X,_ = multi_level_acf(X,self.samplerate,space=self.space)
+        return X
 class DynamicRange_Concept(Concept):
     """
     Compute the dynamic range using torchaudio
@@ -154,6 +229,8 @@ class SpectralEnergyPerBand_Concept(Concept):
         super(SpectralEnergyPerBand_Concept,self).__init__(needStatistics=False)
         self.samplerate = samplerate
         self.freqband = freqband
+    def get_name(self):
+        return sanitize_name(f"{super().get_name()}_{self.freqband}")
     def process(self,X):
         X = spectral_energy_per_band(X,self.samplerate,band=self.freqband)
         return X

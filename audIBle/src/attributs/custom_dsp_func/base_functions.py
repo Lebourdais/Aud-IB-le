@@ -2,7 +2,7 @@ import torchaudio
 import torch
 import librosa
 import pandas as pd # Only for dataset testing
-
+import math
 def sig_generator(length,samplerate,batch_size=8):
     t = torch.linspace(0.0,length,steps=int(samplerate*length))
     freq_base = (100 / length)
@@ -50,7 +50,7 @@ def load_sample_ESC50_dataset(path,batchsize=8):
         
 
 def loudness(signal,samplerate):
-    return torchaudio.functionals.loudness(signal,samplerate)
+    return torchaudio.functional.loudness(signal,samplerate)
 
 def stich(windowed_sig,base_shape,stepsize,samplerate,win_func = torch.ones):
     step = int(stepsize*samplerate)
@@ -64,6 +64,7 @@ def stich(windowed_sig,base_shape,stepsize,samplerate,win_func = torch.ones):
             counter[step*ii:step*ii + sig.shape[0]]+=window
         tmp.append(basesig/counter)
     return torch.stack(tmp)
+
 def fft(sig,samplerate):
     fft_val = torch.fft.fft(sig).abs() #useful values are under 100Hz
     freq = torch.tensor([ii * (samplerate/fft_val.shape[-1]) for ii in range(fft_val.shape[-1])]) # Bins are every Fs/N Hz, with N the size of fft
@@ -84,6 +85,51 @@ def energy(signal,samplerate,winsize = 0.05,stepsize=0.01,win_func=torch.ones):
     signal_window = windowing(signal,winsize,stepsize,samplerate,win_func=win_func) # batch,n_win,s_win
     energy = signal_window.abs().pow(2).sum(dim=-1)
     return energy
+
+def energy_win(window):
+    energy = window.abs().pow(2).sum(dim=-1)
+    return energy
+
+def windowed_acf(signal,samplerate,window = 1,step = 0.01):
+    # windowed autocorrelation function
+    windowed_sig = windowing(signal,winsize=window,stepsize=step,samplerate=samplerate)
+    energy = energy_win(windowed_sig)
+    starting_point_b = [energy[b].argmax() for b in range(signal.shape[0])]
+    #starting_point_b = torch.randint(low=3,high=windowed_sig.shape[1]-5,size=(windowed_sig.shape[0],))
+    #print(f"{signal.shape=}")
+    steps = torch.arange(windowed_sig.shape[1])
+    x_glob = steps.float() * step + window / 2
+    
+    x_acc = []
+    #print(f"{x_glob=}")
+    acc = []
+    peaks_glob = []
+    for windowb, starting_point in zip(windowed_sig,starting_point_b):
+        starting_point_s = starting_point.item()
+        #print(f"{windowb.shape=}")
+        sigs= windowb
+        kernel = windowb[starting_point_s,:].unsqueeze(0)
+        #print(f"{sigs.shape=}, {kernel.shape=}")
+        corr_function = (sigs * kernel).sum(dim=1)
+        x = [(x_glob[y]) - (x_glob[starting_point_s]) for y in range(windowb.shape[0])]
+        #print(f"{corr_function.shape=}")
+        x_acc.append(x)
+        acc.append(corr_function/max(corr_function))
+        peaks = torch.topk(corr_function/max(corr_function),10).values[1:]
+        peaks_glob.append(torch.tensor(peaks))
+        #print(f"{peaks=}")
+    return torch.stack(acc),x_acc,torch.stack(peaks_glob)
+
+def multi_level_acf(signal,samplerate,space=(0.1,1,100)):
+    x = torch.linspace(start=space[0],end=space[1],steps=space[2])
+    y = []
+    
+    for win in x:
+        acf,x_acc,peaks = windowed_acf(signal,samplerate,window=win)
+        mean_acf = peaks.mean(dim=1)
+        y.append(mean_acf)
+    #print(f"{torch.stack(y).T.shape=},{x.repeat(signal.shape[0],0).shape=}")
+    return torch.stack(y).T,x
 
 def dynamic_range(signal,samplerate):
     e = energy(signal=signal,samplerate=samplerate)
@@ -121,7 +167,6 @@ def spectrogram(signal,samplerate,n_fft=400,db=False,power = 2.0):
 def hF_content_descriptor(signal,samplerate):
     spec,freqs = spectrogram(signal,samplerate)
     weights = torch.arange(len(freqs))
-    print(weights.shape,spec.shape)
     weighted_spec = spec*weights.unsqueeze(1)
     hfcd = weighted_spec.sum(1)
     return hfcd
