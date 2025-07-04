@@ -28,7 +28,7 @@ class SAE(nn.Module):
         # Apply sparsity constraint
         if self.sparsity > 0:
             if self.method == 'top-k':
-                k = int(self.sparsity * self.sae_dim) 
+                k = int((1-self.sparsity) * self.sae_dim) 
                 _, indices = torch.topk(z, k, dim=-1) 
                 mask = torch.zeros_like(z,dtype=z.dtype)
                 mask.scatter_(2, indices, torch.ones_like(z, dtype=z.dtype))
@@ -41,6 +41,13 @@ class SAE(nn.Module):
 
         return x_reconstructed, z
 
+class MeanPooling(nn.Module):
+    def __init__(self, dim=1):
+        super().__init__()
+        self.dim=dim
+
+    def forward(self, x):
+        return x.mean(dim=self.dim,keepdim=True)
 
 class SaeSslWrapper(nn.Module):
 
@@ -51,6 +58,7 @@ class SaeSslWrapper(nn.Module):
                  sparsity: float,
                  freeze: bool = True,
                  layer_indices: list[int] = [-1],
+                 pooling_method: str = None,
                  ):
         super().__init__()
 
@@ -69,6 +77,9 @@ class SaeSslWrapper(nn.Module):
         else:
             raise Exception(f"!!! No audio encoder can be found with {encoder_type=} !!!")
 
+
+        # check sparsity parameter
+        print(f"!!! Sparsity = {sparsity}")
         # One SAE for each selected hidden state
         n_sae = len(layer_indices) + 1 # include the last hidden state
         sae_set = []
@@ -80,7 +91,12 @@ class SaeSslWrapper(nn.Module):
         
         self.encoder_type = encoder_type
         self.layer_indices = layer_indices
-
+        
+        if pooling_method is not None:
+            if pooling_method == "mean":
+                self.pool = MeanPooling(dim=1)
+            else:
+                self.pool = None
 
     def forward(self, x):
         outputs = self.encoder(audio=x, output_hidden_states=True, layer_indices=self.layer_indices)
@@ -91,6 +107,8 @@ class SaeSslWrapper(nn.Module):
         hidden_reconstruct = []
         hidden = []
         for ii, hid_rep in enumerate(out_cat):
+            if self.pool is not None:
+                hid_rep = self.pool(hid_rep)
             hid_hat, z_sparse = self.saes[ii](hid_rep)
             sae_latent.append(z_sparse)
             hidden_reconstruct.append(hid_hat)

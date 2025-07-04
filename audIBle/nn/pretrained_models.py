@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchaudio
 import numpy as np
 from transformers import (
@@ -21,6 +22,7 @@ class BaseAudioEncoder(nn.Module):
         self.freeze_encoder = freeze_encoder
         self.feature_extractor = None
         self.encoder = None
+        self.hidden_size = None
         
     def _freeze_encoder(self):
         """Freeze encoder parameters"""
@@ -49,6 +51,9 @@ class BaseAudioEncoder(nn.Module):
         )
         
         return inputs
+    
+    def get_hidden_size(self):
+        return self.hidden_size
 
 class WavLMEncoder(BaseAudioEncoder):
     """WavLM encoder module"""
@@ -62,6 +67,7 @@ class WavLMEncoder(BaseAudioEncoder):
         
         self.hidden_size = self.encoder.config.hidden_size
         self.num_layers = self.encoder.config.num_hidden_layers + 1  # +1 for input embeddings
+        print(f"WavLM instance has {self.num_layers} layers")
         
         self._freeze_encoder()
         
@@ -116,7 +122,8 @@ class HuBERTEncoder(BaseAudioEncoder):
         
         self.hidden_size = self.encoder.config.hidden_size
         self.num_layers = self.encoder.config.num_hidden_layers + 1
-        
+        print(f"HuBERT instance has {self.num_layers} layers")
+        print(f"HuBERT instance has {self.hidden_size} hidden dimensions")
         self._freeze_encoder()
         
     def forward(self, audio: torch.Tensor, output_hidden_states: bool = True, 
@@ -161,6 +168,9 @@ class ASTEncoder(BaseAudioEncoder):
         self.hidden_size = self.encoder.config.hidden_size
         self.num_layers = self.encoder.config.num_hidden_layers + 1
         
+        print(f"AST instance has {self.num_layers} layers")
+        print(f"AST instance has {self.hidden_size} hidden dimensions")
+
         self._freeze_encoder()
         
     def forward(self, audio: torch.Tensor, output_hidden_states: bool = True, 
@@ -193,9 +203,9 @@ class ASTEncoder(BaseAudioEncoder):
         return result
 
 class BEATsEncoder(BaseAudioEncoder):
-    """BEATs encoder module"""
+    """DEPRECATED !!!!!"""
     
-    def __init__(self, model_name: str = "microsoft/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt2", freeze_encoder: bool = True):
+    def __init__(self, model_name: str = "", freeze_encoder: bool = True):
         super().__init__(model_name, freeze_encoder)
         
         try:
@@ -210,7 +220,8 @@ class BEATsEncoder(BaseAudioEncoder):
             else:
                 self.hidden_size = 768  # Default
                 self.num_layers = 13    # Default
-                
+            print(f"AST instance has {self.num_layers} layers")
+            print(f"AST instance has {self.hidden_size} hidden dimensions")
             self._freeze_encoder()
             
         except Exception as e:
@@ -364,13 +375,47 @@ class MultiAudioEncoder(nn.Module):
                 
         return total_size
 
+class TemporalAttentionPooling(nn.Module):
+    """
+    Attentive pooling to pool the hidden representations of the pretrained models.
+    The attention weights can later be used to know which layer(s) is (are) the most approapriate for the task.
+    """
+    def __init__(self, hidden_dim):
+        super(TemporalAttentionPooling, self).__init__()
+        
+        # Mécanisme d'attention temporelle
+        self.attention = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.Tanh(),
+            nn.Linear(hidden_dim // 2, 1)
+        )
+    
+    def forward(self, x, return_att_weights=False):
+        # x: (batch, time, hidden_dim)
+        
+        # Calculer les scores d'attention
+        attn_scores = self.attention(x)  # (batch, time, 1)
+        
+        # Normaliser avec softmax
+        attn_weights = F.softmax(attn_scores, dim=1)  # (batch, time, 1)
+        
+        # Somme pondérée
+        context = torch.bmm(x.transpose(1, 2), attn_weights)  # (batch, hidden_dim, 1)
+        context = context.squeeze(2)  # (batch, hidden_dim)
+        if return_att_weights:
+            return context, attn_weights
+        return context
+
+
 # Utility functions for downstream tasks
 class AudioClassifier(nn.Module):
     """Example classifier using audio encoder representations"""
     
-    def __init__(self, encoder: Union[BaseAudioEncoder, MultiAudioEncoder], 
-                 num_classes: int, hidden_size: Optional[int] = None,
-                 use_layer_indices: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+    def __init__(self, 
+                 encoder_type: str, 
+                 num_classes: int,
+                 freeze: bool = True,
+                 use_layer_indices: list = None,
                  pooling_method: str = 'mean'):
         """
         Audio classifier with pretrained encoder
@@ -384,23 +429,29 @@ class AudioClassifier(nn.Module):
         """
         super().__init__()
         
-        self.encoder = encoder
+        if encoder_type.upper() == "WAVLM":
+            model_name='microsoft/wavlm-base-plus'
+            self.encoder = WavLMEncoder(model_name=model_name, freeze_encoder=freeze)        
+        elif encoder_type.upper() == "HUBERT":
+            model_name = "facebook/hubert-base-ls960"
+            self.encoder = HuBERTEncoder(model_name=model_name, freeze_encoder=freeze)
+        elif encoder_type.upper() == "BEATS":
+            model_name = 'microsoft/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt2'
+            self.encoder = BEATsEncoder(model_name=model_name, freeze_encoder=freeze)
+        elif encoder_type.upper() == "AST":
+            model_name = "MIT/ast-finetuned-audioset-10-10-0.4593"
+            self.encoder = ASTEncoder(model_name=model_name, freeze_encoder=freeze)        
+        else:
+            raise Exception(f"!!! No audio encoder can be found with {encoder_type=} !!!")
+
         self.use_layer_indices = use_layer_indices
         self.pooling_method = pooling_method
         
         # Determine input size for classifier
-        if hidden_size is None:
-            if isinstance(encoder, MultiAudioEncoder):
-                hidden_size = encoder.get_combined_hidden_size()
-            else:
-                hidden_size = encoder.hidden_size
-                
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_size // 2, num_classes)
-        )
+        hidden_size = self.encoder.hidden_size
+        print(f"!!!!!{hidden_size=}!!!!")
+        self.layer_pool = TemporalAttentionPooling(hidden_dim=hidden_size)
+        self.classifier = nn.Linear(hidden_size, num_classes)
         
     def pool_representations(self, representations: torch.Tensor) -> torch.Tensor:
         """Pool sequence representations"""
@@ -413,38 +464,40 @@ class AudioClassifier(nn.Module):
         else:
             return representations.mean(dim=1)  # Default to mean
             
-    def forward(self, audio: torch.Tensor) -> torch.Tensor:
+    def forward(self, audio: torch.Tensor, return_att_weights=False) -> torch.Tensor:
         """Forward pass"""
         # Get encoder outputs
-        if isinstance(self.encoder, MultiAudioEncoder):
-            outputs = self.encoder(audio, output_hidden_states=True, layer_indices=self.use_layer_indices)
+        layer_indices = [i for i in range(self.encoder.num_layers)]
+
+
+        outputs = self.encoder(audio, output_hidden_states=True, layer_indices=layer_indices)
+        
+        # Use specified layer or last hidden state
+        if len(self.use_layer_indices) > 1 and 'hidden_states' in outputs:
+            all_pooled_rep = []
+            # average pooling of all the hidden representations (one signle embedding for each batch with `hidden_size` fimensions)
+            for h in outputs['hidden_states']:
+                h_pooled = h.mean(dim=1)
+                all_pooled_rep.append(h_pooled)
             
-            # Combine representations from all encoders
-            combined_reprs = []
-            for encoder_name, encoder_output in outputs.items():
-                if 'last_hidden_state' in encoder_output:
-                    repr_tensor = encoder_output['last_hidden_state']
-                    pooled = self.pool_representations(repr_tensor)
-                    combined_reprs.append(pooled)
-                    
-            if combined_reprs:
-                features = torch.cat(combined_reprs, dim=-1)
-            else:
-                raise ValueError("No valid representations found")
-                
+            # add the last hidden state (output of the SSL model)
+            last_h_pooled = outputs["last_hidden_state"].mean(dim=1)
+            all_pooled_rep.append(last_h_pooled)
+            all_pooled_rep = torch.stack(all_pooled_rep,dim=1)
+            # pool the layer-wise representations using attentive pooling (attentive selection of representations)
+            features, att_weights = self.layer_pool(all_pooled_rep, return_att_weights=True)
+        # to train on a single representation
+        elif len(self.use_layer_indices) > 0 and 'hidden_states' in outputs:
+            h = outputs["hidden_states"][self.use_layer_indices[0]]
+            features = self.pool_representations(h)
         else:
-            outputs = self.encoder(audio, output_hidden_states=True, layer_indices=self.use_layer_indices)
-            
-            # Use specified layer or last hidden state
-            if self.use_layer_indices and 'hidden_states' in outputs:
-                # Use specified layer (take first if multiple)
-                layer_idx = self.use_layer_indices[0] if isinstance(self.use_layer_indices, list) else self.use_layer_indices
-                features = self.pool_representations(outputs['hidden_states'][layer_idx])
-            else:
-                features = self.pool_representations(outputs['last_hidden_state'])
+            # unused for now
+            features = self.pool_representations(outputs['last_hidden_state'])
                 
         # Classify
         logits = self.classifier(features)
+        if return_att_weights:
+            return logits, att_weights
         return logits
 
 # Example usage and helper functions

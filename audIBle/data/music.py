@@ -3,6 +3,7 @@ import torchaudio
 import torchaudio.transforms as T
 import os
 from torch.utils.data import Dataset
+from datasets import load_dataset,Audio
 
 
 class GTZAN(Dataset):
