@@ -159,7 +159,10 @@ class ESC_50(AudioDataset):
         self.classes = sorted(self.df[self.label_col].unique())
         for i, category in enumerate(self.classes):
             self.class_to_idx[category] = i
-
+    
+    def get_df(self):
+        return self.df
+    
     def __getitem__(self, index):
         """
         Args:

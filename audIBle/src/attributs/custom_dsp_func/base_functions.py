@@ -31,20 +31,21 @@ def sig_generator(length,samplerate,batch_size=8):
         metadata[i]['title'] = f"[{', '.join([f'{x:.2f}' for x in metadata[i]['freqs']])}]"
     return torch.stack(out),metadata
 
-def load_sample_ESC50_dataset(path,batchsize=8):
+def load_sample_ESC50_dataset(path,batchsize=8, target_sr:int = 16000):
     """
     load a part of ESC-50 for testing
     """
     data = pd.read_csv(f"{path}/meta/esc50.csv")
     batch = data.sample(batchsize,ignore_index=True)
     t = torch.linspace(0,5.0,steps=16000*5)
-    rs = torchaudio.transforms.Resample(orig_freq=44100,new_freq=16000)
     metadata = {i:{'t':t}for i in range(batchsize)}
     full_batch = []
     for ii,r in batch.iterrows():
         audio,sr = torchaudio.load(f"{path}/audio/{r['filename']}")
-        rs_audio = rs(audio).squeeze()
-        full_batch.append(rs_audio)
+        if sr != target_sr:
+            rs = torchaudio.transforms.Resample(orig_freq=sr,new_freq=target_sr)
+            audio = rs(audio).squeeze()
+        full_batch.append(audio)
         metadata[ii]['title'] = f"{r['filename']} : {r['category']}"
     return torch.stack(full_batch),metadata
         
