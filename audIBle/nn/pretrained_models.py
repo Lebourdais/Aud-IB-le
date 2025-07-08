@@ -210,7 +210,6 @@ class MERTEncoder(BaseAudioEncoder):
         print(f"Loading MERT: {model_name}")
         self.encoder = AutoModel.from_pretrained(model_name, trust_remote_code=True)
         self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_name, trust_remote_code=True)
-        
         self.hidden_size = self.encoder.config.hidden_size
         self.num_layers = self.encoder.config.num_hidden_layers + 1
         print(f"MERT instance has {self.num_layers} layers")
@@ -221,7 +220,7 @@ class MERTEncoder(BaseAudioEncoder):
                 layer_indices: Optional[List[int]] = None) -> Dict[str, torch.Tensor]:
         """Forward pass through HuBERT"""
         # Preprocess audio
-        inputs = self.preprocess_audio(audio)
+        inputs = self.preprocess_audio(audio, sampling_rate=self.feature_extractor.sampling_rate)
         
         # Move inputs to same device as model
         device = next(self.encoder.parameters()).device

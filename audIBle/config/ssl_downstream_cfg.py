@@ -455,4 +455,25 @@ conf = {
         "use_layer_indices": [13]
       },
     },
+  "047": {
+      'sample_rate': 24000,
+      'model': {
+        "encoder_type": "mert",
+        "freeze": True,
+        "num_classes": 50,
+        "pooling_method": "mean",
+        "use_layer_indices": [5]
+      },
+      'data': {
+        "dataset_name": "esc50",
+        "train": {
+          "root": "/lium/corpus/vrac/audio_tagging/",
+          "part": "train",
+          "target_samplerate": 24000},
+        "valid": {
+          "root": "/lium/corpus/vrac/audio_tagging/",
+          "part": "valid",
+          "target_samplerate": 24000},  
+    },
+  }
 }
