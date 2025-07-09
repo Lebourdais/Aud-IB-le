@@ -55,6 +55,9 @@ def train(config, conf_id, seed):
     # Save the configuration
 
     # Load the dataset
+    import pprint
+    pprint.pprint(config["data"])
+
     train_set = select_dataset(dataset_name=config["data"]["dataset_name"], 
                                **config["data"]["train"])
 
@@ -164,10 +167,14 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=42, help="Random seed for experiment reproductibility")
     args = parser.parse_args()
 
+    import pprint
+    print("Common parameters before merge")
+    pprint.pprint(common_parameters)
+
     exp_conf = conf[args.conf_id]
     config = merge_configs(common_parameters, exp_conf)
 
-    import pprint
+    print("Config after merge")
     pprint.pprint(config)
 
     train(config, conf_id=args.conf_id, seed=args.seed)

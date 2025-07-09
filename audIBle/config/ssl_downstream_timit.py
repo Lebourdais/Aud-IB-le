@@ -7,6 +7,7 @@ cluster = socket.gethostname()
 slurm = "SLURM_JOB_ID" in os.environ
 
 EXP_ROOT = os.environ["EXP_ROOT"]
+DATA_ROOT = os.environ["DATA_ROOT"]
 
 if slurm:
   job_id = os.environ["SLURM_JOB_ID"]
@@ -14,7 +15,7 @@ else:
   job_id = "".join(random.choices(string.ascii_letters + string.digits, k=8))
 
 common_parameters = {
-    'exp_dir': os.path.join(EXP_ROOT,'train/SAE/ssl_downstream_timit'),
+    'exp_dir': os.path.join(EXP_ROOT,'SAE/ssl_downstream_timit'),
     'sample_rate': 16000,
     'optim': {
         'epochs': 80,
@@ -25,12 +26,13 @@ common_parameters = {
     'data': {
       "dataset_name": "timit",
       "train": {
-        "data_dir": "/lium/corpus/base/TIMIT/",
+        "data_dir": os.path.join(DATA_ROOT,"TIMIT"),
+        "overwrite": True, 
         "split": "train",
         "subsplit": "train",
         "length": 0.5,},
       "valid": {
-            "data_dir": "/lium/corpus/base/TIMIT/",
+            "data_dir": os.path.join(DATA_ROOT,"TIMIT"),
             "split": "train",
             "subsplit": "valid",
             "length": 0.5,},

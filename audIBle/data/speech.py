@@ -85,6 +85,7 @@ class TimitDataset(Dataset):
         self.train_ratio = train_ratio
         self.random_seed = random_seed
         self.overwrite = overwrite
+        print(f"Overwrite TIMIT splits: {overwrite=}")
         
         # Phoneme mapping (same as your original)
         self.mapping_phone = {
