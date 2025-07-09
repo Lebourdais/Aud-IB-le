@@ -155,7 +155,12 @@ def train(config, conf_id, seed):
 
 if __name__ == "__main__":
 
-    from audIBle.config.ssl_downstream_cfg import conf, common_parameters
+    # To train on ESC-50
+    #from audIBle.config.ssl_downstream_cfg import conf, common_parameters
+    # To train on TIMIT
+    #from audIBle.config.ssl_downstream_timit import conf, common_parameters
+    # To train on VocalSet
+    from audIBle.config.ssl_downstream_vocalset import conf, common_parameters
     from audIBle.config.utils import merge_configs
     import argparse
 

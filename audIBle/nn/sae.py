@@ -1,6 +1,6 @@
 import torch 
 import torch.nn as nn
-from audIBle.nn.pretrained_models import WavLMEncoder, HuBERTEncoder, BEATsEncoder, ASTEncoder
+from audIBle.nn.pretrained_models import WavLMEncoder, HuBERTEncoder, BEATsEncoder, ASTEncoder, MERTEncoder
 from typing import Dict, List, Tuple, Optional, Union
 
 class SAE(nn.Module):
@@ -73,7 +73,10 @@ class SaeSslWrapper(nn.Module):
             self.encoder = BEATsEncoder(model_name=model_name, freeze_encoder=freeze)
         elif encoder_type.upper() == "AST":
             model_name = "MIT/ast-finetuned-audioset-10-10-0.4593"
-            self.encoder = ASTEncoder(model_name=model_name, freeze_encoder=freeze)        
+            self.encoder = ASTEncoder(model_name=model_name, freeze_encoder=freeze)      
+        elif encoder_type.upper() == "MERT":
+            model_name = "m-a-p/MERT-v1-95M"
+            self.encoder = MERTEncoder(model_name=model_name, freeze_encoder=freeze)    
         else:
             raise Exception(f"!!! No audio encoder can be found with {encoder_type=} !!!")
 

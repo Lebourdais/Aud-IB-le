@@ -143,7 +143,7 @@ class VocalSet(Dataset):
                     start = 0
                 audio = audio[:, start:start + self.length]
 
-        return audio, torch.Tensor([label]).to(torch.int64)
+        return audio, label
 
     def __len__(self):
         return len(self.data)
