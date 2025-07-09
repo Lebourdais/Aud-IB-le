@@ -12,7 +12,7 @@ import shutil
 
 
 from audIBle.data.sound import ESC_50, UrbanSound8k
-from audIBle.data.music import GTZAN
+from audIBle.data.music import GTZAN, VocalSet
 from audIBle.data.speech import TimitDataset, CommonVoiceDataset
 
 def select_dataset(dataset_name: str,
@@ -27,6 +27,8 @@ def select_dataset(dataset_name: str,
         dataset = TimitDataset(**data_kw)
     elif dataset_name.upper() == "COMMONVOICE":
         dataset = CommonVoiceDataset(**data_kw)
+    elif dataset_name.upper() == "VOCALSET":
+        dataset = VocalSet(**data_kw)
 
     return dataset
 

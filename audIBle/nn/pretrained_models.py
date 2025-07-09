@@ -202,6 +202,50 @@ class ASTEncoder(BaseAudioEncoder):
             
         return result
 
+class MERTEncoder(BaseAudioEncoder):
+    
+    def __init__(self, model_name: str = "m-a-p/MERT-v1-95M", freeze_encoder: bool = True):
+        super().__init__(model_name, freeze_encoder)
+        
+        print(f"Loading MERT: {model_name}")
+        self.encoder = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+        self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_name, trust_remote_code=True)
+        self.hidden_size = self.encoder.config.hidden_size
+        self.num_layers = self.encoder.config.num_hidden_layers + 1
+        print(f"MERT instance has {self.num_layers} layers")
+        print(f"MERT instance has {self.hidden_size} hidden dimensions")
+        self._freeze_encoder()
+        
+    def forward(self, audio: torch.Tensor, output_hidden_states: bool = True, 
+                layer_indices: Optional[List[int]] = None) -> Dict[str, torch.Tensor]:
+        """Forward pass through HuBERT"""
+        # Preprocess audio
+        inputs = self.preprocess_audio(audio, sampling_rate=self.feature_extractor.sampling_rate)
+        
+        # Move inputs to same device as model
+        device = next(self.encoder.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        
+        # Forward pass
+        outputs = self.encoder(
+            inputs['input_values'], 
+            output_hidden_states=output_hidden_states
+        )
+        
+        result = {
+            'last_hidden_state': outputs.last_hidden_state,
+            'pooler_output': outputs.pooler_output if hasattr(outputs, 'pooler_output') else None
+        }
+        
+        if output_hidden_states:
+            hidden_states = outputs.hidden_states
+            if layer_indices is not None:
+                hidden_states = [hidden_states[i] for i in layer_indices if i < len(hidden_states)]
+            result['hidden_states'] = hidden_states
+            
+        return result
+
+
 class BEATsEncoder(BaseAudioEncoder):
     """DEPRECATED !!!!!"""
     
@@ -440,7 +484,10 @@ class AudioClassifier(nn.Module):
             self.encoder = BEATsEncoder(model_name=model_name, freeze_encoder=freeze)
         elif encoder_type.upper() == "AST":
             model_name = "MIT/ast-finetuned-audioset-10-10-0.4593"
-            self.encoder = ASTEncoder(model_name=model_name, freeze_encoder=freeze)        
+            self.encoder = ASTEncoder(model_name=model_name, freeze_encoder=freeze)      
+        elif encoder_type.upper() == "MERT":
+            model_name = "m-a-p/MERT-v1-95M"
+            self.encoder = MERTEncoder(model_name=model_name, freeze_encoder=freeze)  
         else:
             raise Exception(f"!!! No audio encoder can be found with {encoder_type=} !!!")
 
