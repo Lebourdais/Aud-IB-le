@@ -7,6 +7,7 @@ cluster = socket.gethostname()
 slurm = "SLURM_JOB_ID" in os.environ
 
 EXP_ROOT = os.environ["EXP_ROOT"]
+DATA_ROOT = os.environ["DATA_ROOT"]
 
 if slurm:
   job_id = os.environ["SLURM_JOB_ID"]
@@ -25,14 +26,14 @@ common_parameters = {
     'data': {
       "dataset_name": "vocalset",
       "train": {
-        "root": "/lium/corpus/vrac/VocalSet/FULL",
+        "root": os.path.join(DATA_ROOT,"VocalSet/FULL"),
         "split": "train",
         "seed": 42,
         "ratio": 0.8,
         "duration": 5.0,
         "target_sr": 16000,},
       "valid": {
-        "root": "/lium/corpus/vrac/VocalSet/FULL",
+        "root": os.path.join(DATA_ROOT,"VocalSet/FULL"),
         "split": "valid",
         "seed": 42,
         "ratio": 0.8, # ratio is the amount of train data. The <split> parameter allows to select the train files or the valid files

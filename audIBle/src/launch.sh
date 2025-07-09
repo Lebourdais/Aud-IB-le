@@ -11,6 +11,6 @@
 #SBATCH --mail-user=theo.mariotte@univ-lemans.fr
 
 DATASET=$3
-python train_ssl_downstream.py --conf_id $1 --seed $2
+python train_ssl_downstream.py --conf_id $1 --seed $2 --dataset $DATASET
 
 python eval_classifier_ssl.py --conf_id $1 --seed $2 --exp_tag ssl_downstream_${DATASET} --dataset_name $DATASET --samplerate 16000

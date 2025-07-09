@@ -161,16 +161,27 @@ if __name__ == "__main__":
     # To train on ESC-50
     #from audIBle.config.ssl_downstream_cfg import conf, common_parameters
     # To train on TIMIT
-    #from audIBle.config.ssl_downstream_timit import conf, common_parameters
+    
     # To train on VocalSet
-    from audIBle.config.ssl_downstream_vocalset import conf, common_parameters
+    
     from audIBle.config.utils import merge_configs
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--conf_id', type=str, help='Configuration ID for experiment setup')
     parser.add_argument('--seed', type=int, default=42, help="Random seed for experiment reproductibility")
+    parser.add_argument('--dataset', type=str, help='Name of the dataset under study to select the appropriate configuration file')
     args = parser.parse_args()
+
+    
+    if args.dataset == "esc50":
+        from audIBle.config.ssl_downstream_esc50 import conf, common_parameters
+    elif args.dataset == "timit":
+        from audIBle.config.ssl_downstream_timit import conf, common_parameters
+    elif args.dataset == "vocalset":
+        from audIBle.config.ssl_downstream_vocalset import conf, common_parameters
+    else: 
+        raise Exception(f"No dataset found, try among ['esc50', 'timit', 'vocalset']")
 
     import pprint
     print("Common parameters before merge")
