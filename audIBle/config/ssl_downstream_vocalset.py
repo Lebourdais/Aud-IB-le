@@ -17,7 +17,7 @@ common_parameters = {
     'exp_dir': os.path.join(EXP_ROOT,'train/SAE/ssl_downstream_vocalset'),
     'sample_rate': 16000,
     'optim': {
-        'epochs': 80,
+        'epochs': 1,
         'batch_size': 32,  
         'learning_rate': 0.001,
         'patience_scheduler': 200,

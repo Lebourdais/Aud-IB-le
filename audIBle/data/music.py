@@ -81,7 +81,7 @@ class GTZAN(Dataset):
 
 class VocalSet(Dataset):
     def __init__(self, root: Union[str, Path],
-                 split: str = None,
+                 split: str,
                  seed: int = None,
                  ratio: float = None,
                  duration: float = 5.0,
@@ -90,12 +90,17 @@ class VocalSet(Dataset):
         Original code from Russell Izadi 2023 (https://github.com/Russell-Izadi-Bose/svae/blob/main/vocalset.py)
         Modified by Théo Mariotte 2025
         """
+        if split == "test":
+            root = os.path.join(root, "test")
+        else:
+            root = os.path.join(root, "train")
+
         list_paths = glob.glob(os.path.join(
             root, '**/*.wav'), recursive=True)
 
-        if split is not None:
+        if split != "test":
             list_paths_train, list_paths_valid = self.random_split(
-                list_paths, seed=seed, ratio=ratio)
+            list_paths, seed=seed, ratio=ratio)
             if split == 'train':
                 list_paths = list_paths_train
             elif split == 'valid':

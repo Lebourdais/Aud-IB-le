@@ -113,6 +113,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset_name', type=str, help="Dataset on which testing the model.")
     parser.add_argument("--seed", type=int, help="Seed used to train the model.")
     parser.add_argument("--samplerate", type=int, help="Working samplerate of the model")
+    parser.add_argument("--save_metrics_detail", action="store_true", help="Save the metrics for each file when used.")
     args = parser.parse_args()
 
     exp_name = f"{args.conf_id}_{args.dataset_name.lower()}_{args.seed}"
@@ -136,8 +137,11 @@ if __name__ == "__main__":
         cfg_data = {"root": "/lium/corpus/vrac/audio_tagging/", "part": "test", "target_samplerate": args.samplerate}
     elif dataset_name.upper() == "TIMIT":
         cfg_data = {"data_dir": "/lium/corpus/base/TIMIT/","split": "test", "subsplit": "test", "length": 0.5,}
-    
+    elif dataset_name.upper() == "VOCALSET":
+        cfg_data = {"root": "/lium/corpus/vrac/VocalSet/FULL", "split": "test", "seed": 42, "ratio": 0.8, "duration": 5.0,"target_sr": args.samplerate,}
+
     dataset = select_dataset(dataset_name=dataset_name, **cfg_data)
+
     # evaluate the model
     # this function returns each metric for each file in the dataset
     results = eval(model=model, 
@@ -157,7 +161,8 @@ if __name__ == "__main__":
     
     # Save per-file metrics
     os.makedirs(out_dir, exist_ok=True)
-    df.to_csv(os.path.join(out_dir, f"metrics_fold{args.dataset_name}.csv"), index=False)
+    if args.save_metrics_detail:
+        df.to_csv(os.path.join(out_dir, f"metrics_fold{args.dataset_name}.csv"), index=False)
 
     # Save summary statistics
     with open(os.path.join(out_dir, f"metrics_summary_fold{args.dataset_name}.json"), "w") as f:
