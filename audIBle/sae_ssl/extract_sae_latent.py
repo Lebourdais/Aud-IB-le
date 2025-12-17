@@ -113,6 +113,7 @@ if __name__ == "__main__":
     parser.add_argument("--sparsity",nargs='+',help="Sparsity ratio in the SAE latent representation")
     parser.add_argument("--dataset_name",type=str,help="Sparsity ratio in the SAE latent representation")
     parser.add_argument("--test_set", action="store_true")
+    parser.add_argument("--samplerate",type=int,default=16000,help="Working samplerate of the model.")
 
     args = parser.parse_args()
 
@@ -134,13 +135,21 @@ if __name__ == "__main__":
         ckpt = torch.load(os.path.join(exp_path,"best_model.pth"),weights_only=True, map_location=device)
         model.load_state_dict(ckpt)
 
-        if not args.test_set:
-            cfg["data"]["valid"]["return_path"] = True
-            dataset = select_dataset(dataset_name=cfg["data"]["dataset_name"], **cfg["data"]["valid"])
-        else:
-            cfg_test = {"root":"/lium/corpus/vrac/audio_tagging/", "part":"test", "return_path": True}
-            dataset = select_dataset(dataset_name="esc50", **cfg_test)
-
+        if args.dataset_name == "esc50":
+            if not args.test_set:
+                cfg["data"]["valid"]["return_path"] = True
+                cfg_data = cfg
+            else:
+                cfg_data = {"root":"/lium/corpus/vrac/audio_tagging/", "part":"test", "return_path": True}
+        elif args.dataset_name == "vocalset":
+            cfg_data = {"root": "/lium/corpus/vrac/VocalSet/FULL", 
+                        "split": "test", 
+                        "seed": 42, 
+                        "duration": None,
+                        "target_sr": args.samplerate,
+                        "return_path": True}
+            
+        dataset = select_dataset(dataset_name=args.dataset_name, **cfg_data)
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4)
         layer_indices = cfg["model"]["layer_indices"] + [-1]
         suff = '_'.join(str(ll) for ll in layer_indices)

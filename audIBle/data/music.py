@@ -85,7 +85,8 @@ class VocalSet(Dataset):
                  seed: int = None,
                  ratio: float = None,
                  duration: float = 5.0,
-                 target_sr: int = 16000) -> None:
+                 target_sr: int = 16000,
+                 return_path: bool = False) -> None:
         """
         Original code from Russell Izadi 2023 (https://github.com/Russell-Izadi-Bose/svae/blob/main/vocalset.py)
         Modified by Théo Mariotte 2025
@@ -120,7 +121,7 @@ class VocalSet(Dataset):
         self.split = split
         self.techniques = ['belt', 'breathy', 'inhaled', 'lip_trill', 'spoken', 'straight', 'trill', 'trillo', 'vibrato', 'vocal_fry']
         self.techniques_map = {technique: idx for idx, technique in enumerate(self.techniques)}
-        
+        self.return_path = return_path
 
     def __getitem__(self, i: int) -> Tuple[torch.Tensor, int, set, str]:
         if i >= len(self):
@@ -147,7 +148,8 @@ class VocalSet(Dataset):
                 else:
                     start = 0
                 audio = audio[:, start:start + self.length]
-
+        if self.return_path:
+            return audio, label, path_wav    
         return audio, label
 
     def __len__(self):
@@ -192,7 +194,27 @@ class VocalSet(Dataset):
         df_final = df_tech.loc[df_tech["vowel"].isin(['e', 'o', 'i', 'a', 'u', 'c','f','spoken'])]
 
         self.data = df_final
+        self.list_paths = self.data["path"].to_list()
 
+    def write_audio_paths(self,out_file,relative_path=True):
+        """Write a file with the list of the paths to the files used by the dataloader
+
+        Args:
+            out_file (str): path to save the text file
+            relative_path (bool, optional): write relative path (relatiev to the split, e.g. test, valid...). Defaults to True.
+        """
+        with open(out_file, 'w') as fh:
+            for index, row in self.data.iterrows():
+                path = row["path"]
+                if relative_path:
+                    parts = path.split('/')
+                    idx_end = parts.index(self.split)
+                    parts_rel = parts[idx_end+1:]
+                    # print(f"{parts_rel=}")
+                    path = '/'.join(parts_rel)
+                    # print(f"{path=}")
+                fh.write(f"{path}\n")
+        
 
     @staticmethod
     def random_split(list_, seed=0, ratio=0.8):

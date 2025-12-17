@@ -118,3 +118,27 @@ class SaeSslWrapper(nn.Module):
             hidden.append(hid_rep)
 
         return hidden, sae_latent, hidden_reconstruct
+
+
+class SaeProbe(torch.nn.Module): 
+    # TODO : une probe pour chaque SAE dans un modèle donné (plsu simple car tous les SAE dans le meme checkpoint)
+    def __init__(self,cfg,checkpoint, sae_index=0, num_classes=10, device="cpu"):
+        super().__init__()
+        self.model = SaeSslWrapper(**cfg["model"])
+        ckpt = torch.load(checkpoint,weights_only=True, map_location=device)
+        self.model.load_state_dict(ckpt)
+        self.model.eval() #weights of the pretrained model and SAE are not updated during probing!
+        self.pool_type = "mean"
+        sae_dim = cfg["model"]["sae_dim"]
+        self.sae_index = sae_index
+
+        self.probe = torch.nn.Linear(sae_dim, num_classes)
+
+    def forward(self, x):
+        with torch.no_grad():
+            _, sae_latent, _ = self.model(x)
+        #print(f"{sae_latent[self.sae_index].shape=}")
+        logits = self.probe(sae_latent[self.sae_index].squeeze(1))
+
+        return logits
+

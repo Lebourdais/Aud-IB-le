@@ -1,4 +1,4 @@
-from audIBle.nn.pretrained_models import AudioClassifier
+from audIBle.nn.sae import SaeProbe
 from audIBle.data.datasets import select_dataset
 
 import torch
@@ -112,18 +112,22 @@ if __name__ == "__main__":
     parser.add_argument('--exp_tag', type=str, help="Tag of the experiments to select the appropriate folder.")
     parser.add_argument('--dataset_name', type=str, help="Dataset on which testing the model.")
     parser.add_argument("--seed", type=int, help="Seed used to train the model.")
-    parser.add_argument("--samplerate", type=int, help="Working samplerate of the model")
+    #parser.add_argument("--samplerate", type=int, help="Working samplerate of the model")
     parser.add_argument("--save_metrics_detail", action="store_true", help="Save the metrics for each file when used.")
     args = parser.parse_args()
 
-    exp_name = f"{args.conf_id}_{args.dataset_name.lower()}_{args.seed}"
+    #exp_name = f"{args.conf_id}_{args.dataset_name.lower()}_{args.seed}"
+    exp_name = f"{args.conf_id}_sae_downstream_{args.dataset_name}_{args.seed}"
     exp_root = os.path.join(os.environ["EXP_ROOT"], f"train/SAE/{args.exp_tag}/",exp_name)
 
     with open(os.path.join(exp_root, "config.json"), 'r') as fh:
         cfg = json.load(fh)
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
-    model = AudioClassifier(**cfg["model"])
+    sae_index = cfg["sae_index"]
+    checkpoint = cfg["checkpoint"]
+    num_classes = cfg["num_classes"]
+    model = SaeProbe(cfg, checkpoint=checkpoint, sae_index=sae_index, num_classes=num_classes, device=device)
 
     # load classifier checkpoint
     classif_ckpt_path = os.path.join(exp_root,"best_model.pth")
@@ -134,11 +138,11 @@ if __name__ == "__main__":
     # Prepare the test dataset
     dataset_name = args.dataset_name
     if dataset_name.upper() == "ESC50":
-        cfg_data = {"root": "/lium/corpus/vrac/audio_tagging/", "part": "test", "target_samplerate": args.samplerate}
+        cfg_data = {"root": "/lium/corpus/vrac/audio_tagging/", "part": "test", "target_samplerate": cfg["sample_rate"]}
     elif dataset_name.upper() == "TIMIT":
         cfg_data = {"data_dir": "/lium/corpus/base/TIMIT/","split": "test", "subsplit": "test", "length": 0.5,}
     elif dataset_name.upper() == "VOCALSET":
-        cfg_data = {"root": "/lium/corpus/vrac/VocalSet/FULL", "split": "test", "seed": 42, "ratio": 0.8, "duration": 5.0,"target_sr": args.samplerate,}
+        cfg_data = {"root": "/lium/corpus/vrac/VocalSet/FULL", "split": "test", "seed": 42, "ratio": 1.0, "duration": 5.0,"target_sr": cfg["sample_rate"],}
 
     dataset = select_dataset(dataset_name=dataset_name, **cfg_data)
 
@@ -157,7 +161,7 @@ if __name__ == "__main__":
     df = pd.DataFrame(results)
 
     # Compute mean and std for each metric
-    stats = df.agg(['mean', 'std']).to_dict()
+    stats = df.agg(['mean', 'std']).to_dict()   
     
     # Save per-file metrics
     os.makedirs(out_dir, exist_ok=True)

@@ -59,3 +59,9 @@ coverage.xml
 *.log
 *.pkl
 
+# data
+*.csv
+# scripts
+*.sh
+*.pdf
+*.png

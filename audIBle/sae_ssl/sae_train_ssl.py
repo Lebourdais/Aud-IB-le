@@ -448,7 +448,7 @@ def main(config, conf_id, seed):
 
 if __name__ == "__main__":
 
-    from audIBle.config.sae_ssl_cfg import conf, common_parameters
+    
     from audIBle.config.utils import merge_configs
     import argparse
     import torch 
@@ -456,7 +456,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--conf_id', type=str, help='Configuration ID for experiment setup')
     parser.add_argument('--seed', type=int, default=42, help="Random seed for experiment reproductibility")
+    parser.add_argument("--dataset", type=str, help="Name of the dataset", choices=["esc50", "vocalset", "timit"])
     args = parser.parse_args()
+
+    if args.dataset == "esc50":
+        from audIBle.config.sae_ssl_cfg_esc50 import conf, common_parameters
+    elif args.dataset == "vocalset":
+        from audIBle.config.sae_ssl_cfg_vocalset import conf, common_parameters
+    else:
+        raise Exception(f'No dataset found with name <{args.dataset}>. Try among ["esc50", "vocalset", "timit"]')
 
     exp_conf = conf[args.conf_id]
     config = merge_configs(common_parameters, exp_conf)
